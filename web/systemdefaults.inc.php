@@ -705,11 +705,11 @@ $csv_col_sep = ",";   // Separator between columns/fields
 // $typel["B"] = "B";
 // $typel["C"] = "C";
 // $typel["D"] = "D";
-$typel["E"] = "E";
+// $typel["E"] = "E";
 // $typel["F"] = "F";
 // $typel["G"] = "G";
 // $typel["H"] = "H";
-$typel["I"] = "I";
+// $typel["I"] = "I";
 // $typel["J"] = "J";
 
 
@@ -732,10 +732,10 @@ set_magic_quotes_runtime(0);
 
 // Make sure notice errors are not reported, they can break mrbs code:
 $error_level = E_ALL ^ E_NOTICE;
-if (constant("E_DEPRECATED"))
-{
-  $error_level = $error_level ^ E_DEPRECATED;
-}
+#if (constant("E_DEPRECATED"))
+#{
+#  $error_level = $error_level ^ E_DEPRECATED;
+#}
 error_reporting ($error_level);
 
 ?>
