@@ -124,12 +124,12 @@ $default_language_tokens = "mik";
 $override_locale = "fi_FI";
 
 // Make sure notice errors are not reported, they can break mrbs code:
-$error_level = E_ALL ^ E_NOTICE;
-error_reporting ($error_level);
+#$error_level = E_ALL ^ E_NOTICE;
+#error_reporting ($error_level);
 
 // HES
 $db_password = 'mhxq78rh8q27r';
-$db_host = ":/var/run/mysql/mysql.sock";
+$db_host = "127.0.0.1";
 
 $auth["session"] = "ip";
 $auth["type"] = "none";
