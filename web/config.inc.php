@@ -33,35 +33,24 @@
 //
 // A list of valid timezones can be found at http://php.net/manual/timezones.php
 // The following line must be uncommented by removing the '//' at the beginning
-//$timezone = "Europe/London";
-
+$timezone = "Europe/Helsinki";
 
 /*******************
  * Database settings
  ******************/
 // Which database system: "pgsql"=PostgreSQL, "mysqli"=MySQL
 $dbsys = "mysqli";
-// Hostname of database server. For pgsql, can use "" instead of localhost
-// to use Unix Domain Sockets instead of TCP/IP. For mysql/mysqli "localhost"
-// tells the system to use Unix Domain Sockets, and $db_port will be ignored;
-// if you want to force TCP connection you can use "127.0.0.1".
-$db_host = "localhost";
-// If you need to use a non standard port for the database connection you
-// can uncomment the following line and specify the port number
-// $db_port = 1234;
+// Hostname of database server.
+$db_host = ".fi";
 // Database name:
-$db_database = "mrbs";
-// Schema name.  This only applies to PostgreSQL and is only necessary if you have more
-// than one schema in your database and also you are using the same MRBS table names in
-// multiple schemas.
-//$db_schema = "public";
+//$db_database = "mik";
 // Database login user name:
-$db_login = "mrbs";
+//$db_login = "mik";
 // Database login password:
-$db_password = 'mrbs-password';
+//$db_password = 'xxxxxxxxx';
 // Prefix for table names.  This will allow multiple installations where only
 // one database is available
-$db_tbl_prefix = "mrbs_";
+$db_tbl_prefix = "mikweb2_mrbs_";
 // Uncomment this to NOT use PHP persistent (pooled) database connections:
 // $db_nopersist = 1;
 
@@ -70,4 +59,77 @@ $db_tbl_prefix = "mrbs_";
    to change the default configuration. Do _NOT_ modify systemdefaults.inc.php
    or areadefaults.inc.php.  */
 
+$typel["A"] = "Harjoituslento";
+$typel["B"] = "Matkalento";
+$typel["C"] = "Koululento";
+$typel["D"] = "Huolto";
+$typel["E"] = "Taitolento";
+$typel["F"] = "SAR etsintä/pelastuslento";
 
+$mrbs_admin = "admin";
+$mrbs_admin_email = "tuomas.kuosmanen@gmail.com";
+
+$mrbs_company = "Malmin Ilmailukerho ry";   // This line must always be uncommented ($mrbs_company is used in various places)
+
+//$mrbs_company_logo = "your_logo.gif";    // name of your logo file.   This example assumes it is in the MRBS directory
+
+// Uncomment this next line to have a link to your organisation in the header
+$mrbs_company_url = "http://www.mik.fi/";
+$url_base = "http://www.malminilmailukerho.net/jasenet/varauskirja/";
+
+/* AUTENTIKOINTI - vaatii Wordpressiin "md5-passwords" -pluginin! */
+$auth["session"] = "wpmiika"; // How to get and keep the user ID. One of
+$auth["type"] = "wpmiika";
+//$auth["type"] = "php"; // How to validate the user/password. One of "none"
+$auth['db_ext']['db_system'] = 'mysql';
+$auth['db_ext']['db_host'] = 'sql';
+$auth['db_ext']['db_username'] = 'malminilma_web';
+$auth['db_ext']['db_password'] = 'Phi3thae';
+$auth['db_ext']['db_name'] = 'malminilma_db_web';
+$auth['db_ext']['db_table'] = 'mikweb2_wp_users';
+$auth['db_ext']['column_name_username'] = 'user_login';
+$auth['db_ext']['column_name_password'] = 'user_pass';
+$auth['db_ext']['password_format'] = 'md5';
+$auth["admin"][] = "admin"; // A user name from the user list. Useful
+                                    // with most other session schemes.
+
+
+$weekstarts = 1;
+
+// minimum block size = 30 minutes
+$resolution = (30 * 60);
+
+$morningstarts         = 7;   // must be integer in range 0-23
+$morningstarts_minutes = 0;   // must be integer in range 0-59
+
+// The beginning of the last slot of the day
+$eveningends           = 22;  // must be integer in range 0-23
+$eveningends_minutes   = 00;   // must be integer in range 0-59
+
+
+// LOOK AND FEEL 
+$theme = "mik";
+$simple_trailer = FALSE;
+$view_week_number = FALSE;
+$row_labels_both_sides = TRUE;
+$show_plus_link = TRUE;
+
+$unicode_encoding = 1; 
+$disable_automatic_language_changing = 1;
+//$default_language_tokens = "en";
+$default_language_tokens = "mik";
+
+$override_locale = "fi_FI";
+
+// HES
+$db_password = 'mhxq78rh8q27r';
+$db_host = ":/var/run/mysql/mysql.sock";
+
+$auth["session"] = "ip";
+$auth["type"] = "none";
+
+// This next section must come at the end of the config file - ie after any
+// language and mail settings, as the definitions are used in the included file
+require_once "language.inc";   // DO NOT DELETE THIS LINE
+
+?>
