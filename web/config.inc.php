@@ -123,6 +123,14 @@ $default_language_tokens = "mik";
 
 $override_locale = "fi_FI";
 
+// If you want only administrators to be able to make repeat bookings,
+// set this variable to TRUE
+$auth['only_admin_can_book_repeat'] = TRUE;
+// If you want only administrators to be able to select multiple rooms
+// on the booking form then set this to TRUE.  (It doesn't stop ordinary users
+// making separate bookings for the same time slot, but it does slow them down).
+$auth['only_admin_can_select_multiroom'] = TRUE;
+
 // Make sure notice errors are not reported, they can break mrbs code:
 #$error_level = E_ALL ^ E_NOTICE;
 #error_reporting ($error_level);
