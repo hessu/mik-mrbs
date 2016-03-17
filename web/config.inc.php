@@ -66,6 +66,8 @@ $typel["D"] = "Huolto";
 $typel["E"] = "Taitolento";
 $typel["F"] = "SAR etsintä/pelastuslento";
 
+unset($typel["I"]); // set in systemdefaults, unset.
+
 $mrbs_admin = "admin";
 $mrbs_admin_email = "tuomas.kuosmanen@gmail.com";
 
@@ -120,6 +122,10 @@ $disable_automatic_language_changing = 1;
 $default_language_tokens = "mik";
 
 $override_locale = "fi_FI";
+
+// Make sure notice errors are not reported, they can break mrbs code:
+$error_level = E_ALL ^ E_NOTICE;
+error_reporting ($error_level);
 
 // HES
 $db_password = 'mhxq78rh8q27r';
