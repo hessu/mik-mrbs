@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# $Id: auth_ldapsearch.pl 798 2008-04-13 19:59:24Z jberanek $
+# $Id$
 
 my $server = shift;
 my $searchroot  = shift;

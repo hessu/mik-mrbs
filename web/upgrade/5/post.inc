@@ -1,6 +1,6 @@
 <?php
 
-// $Id: post.inc 1131 2009-06-25 22:33:26Z jberanek $
+// $Id$
 
 global $admin_handle;
 global $tbl_users;
@@ -34,4 +34,3 @@ CREATE TABLE $tbl_users
   }
 }
 
-?>

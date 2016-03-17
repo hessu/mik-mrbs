@@ -1,6 +1,6 @@
 <?php
 
-// $Id: post.inc 1141 2009-06-29 12:03:30Z cimorrison $
+// $Id$
 
 
 global $admin_handle;
@@ -13,7 +13,7 @@ $r = sql_query("SELECT level FROM $tbl_users ".
 
 // If the 'level' field does not exist (as it won't if it was created pre-MRBS 1.4.2),
 // then create it and populate it with existing admins defined in the config file
-if ($r == 0)
+if ($r === FALSE)
 {
   // Default is '0' because we want to play safe and give no rights.
   // In a moment we will go through the table and add users and admins.
@@ -37,7 +37,7 @@ if ($r == 0)
   // Now populate the table with the existing admins
   foreach ($auth['admin'] as $admin_name)
   {
-    $sql = "UPDATE $tbl_users SET level=$max_level WHERE name='".addslashes($admin_name)."'";
+    $sql = "UPDATE $tbl_users SET level=$max_level WHERE name='".sql_escape($admin_name)."'";
     if (sql_command($sql) < 0)
     {
       fatal_error(0, "Error adding existing admins. " . sql_error());
@@ -49,4 +49,3 @@ else
   sql_free($r, $admin_handle);
 }
 
-?>

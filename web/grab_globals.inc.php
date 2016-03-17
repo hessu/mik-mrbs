@@ -18,68 +18,61 @@
 // | @version   $Revision: 797 $.
 // +---------------------------------------------------------------------------+
 //
-// $Id: grab_globals.inc.php 1041 2009-03-02 14:30:23Z jberanek $
+// $Id$
 
 
-//
+// Gets a form variable.   Takes an optional third parameter which
+// is the default value if nothing is found from the form.
 function get_form_var($variable, $type = 'string')
 {
   // We use some functions from here
   require_once "functions.inc";
-
-  if ($type == 'array')
+  
+  global $cli_params, $allow_cli;
+  
+  // Set the default value, and make sure it's the right type
+  if (func_num_args() > 2)
   {
-    $value = array();
+    $value = func_get_arg(2);
+    $value = ($type == 'array') ? (array)$value : $value;
   }
   else
   {
-    $value = NULL;
+    $value = ($type == 'array') ? array() : NULL;
   }
-
-  if (!empty($_POST) && isset($_POST[$variable]))
+  
+   // Get the command line arguments if any (and we're allowed to),
+   // otherwise get the POST variables
+  if ($allow_cli && (!empty($cli_params) && isset($cli_params[$variable])))
   {
-    if ($type == 'array')
-    {
-      $value = (array)$_POST[$variable];
-    }
-    else
-    {
-      $value = $_POST[$variable];
-    }
+    $value = $cli_params[$variable];
+  }
+  else if (!empty($_POST) && isset($_POST[$variable]))
+  {
+    $value = $_POST[$variable];
   }
   else if (!empty($HTTP_POST_VARS) && isset($HTTP_POST_VARS[$variable]))
   {
-    if ($type == 'array')
-    {
-      $value = (array)$HTTP_POST_VARS[$variable];
-    }
-    else
-    {
-      $value = $HTTP_POST_VARS[$variable];
-    }
+    $value = $HTTP_POST_VARS[$variable];
   }
+  
+  // Then get the GET variables
   if (!empty($_GET) && isset($_GET[$variable]))
   {
-    if ($type == 'array')
-    {
-      $value = (array)$_GET[$variable];
-    }
-    else
-    {
-      $value = $_GET[$variable];
-    }
+    $value = $_GET[$variable];
   }
   else if (!empty($HTTP_GET_VARS) && isset($HTTP_GET_VARS[$variable]))
   {
-    if ($type == 'array')
-    {
-      $value = (array)$HTTP_GET_VARS[$variable];
-    }
-    else
-    {
-      $value = $HTTP_GET_VARS[$variable];
-    }
+    $value = $HTTP_GET_VARS[$variable];
   }
+  
+  // Cast to an array if necessary
+  if ($type == 'array')
+  {
+    $value = (array)$value;
+  }
+  
+  // Clean up the variable
   if ($value != NULL)
   {
     if ($type == 'int')
@@ -102,94 +95,41 @@ function get_form_var($variable, $type = 'string')
 }
 
 
-// -- PHP_SELF --
-if (!empty($_SERVER) && isset($_SERVER['PHP_SELF']))
+$vars = array('PHP_SELF',
+              'PHP_AUTH_USER',
+              'PHP_AUTH_PW',
+              'REMOTE_USER',
+              'REMOTE_ADDR',
+              'QUERY_STRING',
+              'HTTP_ACCEPT_LANGUAGE',
+              'HTTP_REFERER',
+              'HTTP_USER_AGENT',
+              'HTTP_HOST');
+              
+foreach ($vars as $var)
 {
-  $PHP_SELF = $_SERVER['PHP_SELF'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['PHP_SELF']))
-{
-  $PHP_SELF = $HTTP_SERVER_VARS['PHP_SELF'];
-}
-
-// -- PHP_AUTH_USER --
-if (!empty($_SERVER) && isset($_SERVER['PHP_AUTH_USER']))
-{
-  $PHP_AUTH_USER = $_SERVER['PHP_AUTH_USER'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['PHP_AUTH_USER']))
-{
-  $PHP_AUTH_USER = $HTTP_SERVER_VARS['PHP_AUTH_USER'];
-}
-
-// -- PHP_AUTH_PW --
-if (!empty($_SERVER) && isset($_SERVER['PHP_AUTH_PW']))
-{
-  $PHP_AUTH_PW = $_SERVER['PHP_AUTH_PW'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['PHP_AUTH_PW']))
-{
-  $PHP_AUTH_PW = $HTTP_SERVER_VARS['PHP_AUTH_PW'];
+  if (!empty($_SERVER) && isset($_SERVER[$var]))
+  {
+    $$var = $_SERVER[$var];
+  }
+  else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS[$var]))
+  {
+    $$var = $HTTP_SERVER_VARS[$var];
+  }
 }
 
-// -- REMOTE_USER --
-if (!empty($_SERVER) && isset($_SERVER['REMOTE_USER']))
+
+
+// If we're operating from the command line then build
+// an associative array of the command line parameters
+// (assumes they're in the form 'parameter=value')
+if (!empty($argc))
 {
-  $REMOTE_USER = $_SERVER['REMOTE_USER'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['REMOTE_USER']))
-{
-  $REMOTE_USER = $HTTP_SERVER_VARS['REMOTE_USER'];
+  $cli_params = array();
+  for ($i=1; $i<$argc; $i++)
+  {
+    parse_str($argv[$i], $param);
+    $cli_params = array_merge($cli_params, $param);
+  }
 }
 
-// -- REMOTE_ADDR --
-if (!empty($_SERVER) && isset($_SERVER['REMOTE_ADDR']))
-{
-  $REMOTE_ADDR = $_SERVER['REMOTE_ADDR'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['REMOTE_ADDR']))
-{
-  $REMOTE_ADDR = $HTTP_SERVER_VARS['REMOTE_ADDR'];
-}
-
-// -- QUERY_STRING --
-if (!empty($_SERVER) && isset($_SERVER['QUERY_STRING']))
-{
-  $QUERY_STRING = $_SERVER['QUERY_STRING'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['QUERY_STRING']))
-{
-  $QUERY_STRING = $HTTP_SERVER_VARS['QUERY_STRING'];
-}
-
-// -- HTTP_ACCEPT_LANGUAGE --
-if (!empty($_SERVER) && isset($_SERVER['HTTP_ACCEPT_LANGUAGE']))
-{
-  $HTTP_ACCEPT_LANGUAGE = $_SERVER['HTTP_ACCEPT_LANGUAGE'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['HTTP_ACCEPT_LANGUAGE']))
-{
-  $HTTP_ACCEPT_LANGUAGE = $HTTP_SERVER_VARS['HTTP_ACCEPT_LANGUAGE'];
-}
-
-// -- HTTP_REFERER --
-if (!empty($_SERVER) && isset($_SERVER['HTTP_REFERER']))
-{
-  $HTTP_REFERER = $_SERVER['HTTP_REFERER'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['HTTP_REFERER']))
-{
-  $HTTP_REFERER = $HTTP_SERVER_VARS['HTTP_REFERER'];
-}
-
-// -- HTTP_HOST --
-if (!empty($_SERVER) && isset($_SERVER['HTTP_HOST']))
-{
-  $HTTP_HOST = $_SERVER['HTTP_HOST'];
-}
-else if (!empty($HTTP_SERVER_VARS) && isset($HTTP_SERVER_VARS['HTTP_HOST']))
-{
-  $HTTP_HOST = $HTTP_SERVER_VARS['HTTP_HOST'];
-}
-
-?>

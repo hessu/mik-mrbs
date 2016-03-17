@@ -1,4 +1,4 @@
-# $Id: upgrade3.my.sql 798 2008-04-13 19:59:24Z jberanek $
+# $Id$
 
 # Run this script to upgrade any postgresql or mysqlmrbs version prior to
 # 1.2-pre3.

@@ -1,5 +1,5 @@
 <?php
-// $Id: pgsql.inc 1177 2009-08-24 09:06:29Z jberanek $
+// $Id$
 
 // pgsql.inc - Simple PHP database support for PostgreSQL.
 // The standard MRBS database connection utilises the following configuration
@@ -31,6 +31,27 @@ function sql_pgsql_ensure_handle(&$db_conn)
 }
 
 
+// A small utility function (not part of the DB abstraction API) to
+// resolve a qualified table name into its schema and table components.
+// Returns an an array indexed by 'table_schema' and 'table_name'.
+// 'table_schema' can be NULL
+function sql_pgsql_resolve_table($table)
+{
+  if (strpos($table, '.') === FALSE)
+  {
+    $table_schema = NULL;
+    $table_name = $table;
+  }
+  else
+  {
+    list($table_schema, $table_name) = explode('.', $table, 2);
+  }
+  
+  return array('table_schema' => $table_schema,
+               'table_name' => $table_name);
+}
+
+
 // Free a results handle. You need not call this if you call sql_row or
 // sql_row_keyed until the row returns 0, since sql_row frees the results
 // handle when you finish reading the rows.
@@ -39,6 +60,29 @@ function sql_pgsql_free ($r, $db_conn = null)
   sql_pgsql_ensure_handle($db_conn);
 
   pg_free_result($r);
+}
+
+
+// Escapes special characters in a string for use in an SQL statement
+function sql_pgsql_escape($str, $db_conn = null)
+{
+  sql_pgsql_ensure_handle($db_conn);
+  
+  if (function_exists('pg_escape_string'))
+  {
+    return pg_escape_string($db_conn, $str);
+  }
+  else
+  {
+    return addslashes($str);
+  }
+}
+
+
+// Quote a table or column name
+function sql_pgsql_quote($identifier)
+{
+  return '"' . $identifier . '"';
 }
 
 
@@ -91,7 +135,7 @@ function sql_pgsql_query1 ($sql, $db_conn = null)
 
 // Execute an SQL query. Returns a database-dependent result handle,
 // which should be passed back to sql_row or sql_row_keyed to get the results.
-// Returns 0 on error; use sql_error to get the error message.
+// Returns FALSE on error; use sql_error to get the error message.
 function sql_pgsql_query ($sql, $db_conn = null)
 {
   sql_pgsql_ensure_handle($db_conn);
@@ -136,7 +180,9 @@ function sql_pgsql_row_keyed ($r, $i, $db_conn = null)
     pg_free_result($r);
     return 0;
   }
-  return pg_fetch_array($r, $i);
+  // Use _array() rather _assoc() to ensure support
+  // for as many PHP versions as possible
+  return pg_fetch_array($r, $i, PGSQL_ASSOC);
 }
 
 
@@ -170,13 +216,17 @@ function sql_pgsql_error($db_conn = null)
 
 
 // Begin a transaction, if the database supports it. This is used to
-// improve PostgreSQL performance for multiple insert/delete/updates.
-// There is no rollback support, since MySQL doesn't support it.
+// improve performance for multiple insert/delete/updates.
 function sql_pgsql_begin($db_conn = null)
 {
   sql_pgsql_ensure_handle($db_conn);
 
-  sql_pgsql_command("BEGIN", $db_conn);
+  $result = sql_pgsql_command("BEGIN", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error (sql_pgsql_error($db_conn), E_USER_WARNING);
+  }
 }
 
 
@@ -185,7 +235,26 @@ function sql_pgsql_commit($db_conn = null)
 {
   sql_pgsql_ensure_handle($db_conn);
 
-  sql_pgsql_command("COMMIT", $db_conn);
+  $result = sql_pgsql_command("COMMIT", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error (sql_pgsql_error($db_conn), E_USER_WARNING);
+  }
+}
+
+
+// Commit (end) a transaction. See sql_begin().
+function sql_pgsql_rollback($db_conn = null)
+{
+  sql_pgsql_ensure_handle($db_conn);
+
+  $result = sql_pgsql_command("ROLLBACK", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error (sql_pgsql_error($db_conn), E_USER_WARNING);
+  }
 }
 
 
@@ -205,18 +274,14 @@ function sql_pgsql_mutex_lock($name, $db_conn = null)
 {
   sql_pgsql_ensure_handle($db_conn);
 
-  global $sql_pgsql_mutex_shutdown_registered, $sql_pgsql_mutex_unlock_name;
+  global $sql_pgsql_mutex_unlock_name;
   if ((sql_pgsql_command("BEGIN", $db_conn) < 0) ||
       (sql_pgsql_command("LOCK TABLE $name IN EXCLUSIVE MODE", $db_conn) < 0))
   {
     return 0;
   }
   $sql_pgsql_mutex_unlock_name = $name;
-  if (empty($sql_pgsql_mutex_shutdown_registered))
-  {
-    register_shutdown_function("sql_pgsql_mutex_cleanup", $db_conn);
-    $sql_pgsql_mutex_shutdown_registered = 1;
-  }
+
   return 1;
 }
 
@@ -230,19 +295,24 @@ function sql_pgsql_mutex_unlock($name, $db_conn = null)
 
   global $sql_pgsql_mutex_unlock_name;
   sql_pgsql_command("COMMIT", $db_conn);
-  $sql_pgsql_mutex_unlock_name = "";
+  $sql_pgsql_mutex_unlock_name = NULL;
 }
 
 
-// Shutdown function to clean up a forgotten lock. For internal use only.
-function sql_pgsql_mutex_cleanup($db_conn)
+// Shutdown function to clean up the connection. For internal use only.
+function sql_pgsql_cleanup($db_conn = NULL)
 {
-  global $sql_pgsql_mutex_shutdown_registered, $sql_pgsql_mutex_unlock_name;
+  global $sql_pgsql_mutex_unlock_name;
+  
+  // Release any forgotten locks
   if (!empty($sql_pgsql_mutex_unlock_name))
   {
     sql_pgsql_command("ABORT", $db_conn);
-    $sql_pgsql_mutex_unlock_name = "";
+    $sql_pgsql_mutex_unlock_name = NULL;
   }
+  
+  // Rollback any outstanding transactions
+  sql_pgsql_rollback($db_conn);
 }
 
 
@@ -277,6 +347,18 @@ function sql_pgsql_syntax_timestamp_to_unix($fieldname, $db_conn = null)
 }
 
 
+// Returns the syntax for a case sensitive string "equals" function
+// NB:  This function is also assumed to do a strict comparison, ie
+// take account of training spaces.  (The '=' comparison in MySQL allows
+// trailing spaces, eg 'john' = 'john ').
+function sql_pgsql_syntax_casesensitive_equals($fieldname, $s, $db_conn = null)
+{
+  sql_pgsql_ensure_handle($db_conn);
+
+  return " " . sql_pgsql_quote($fieldname) . "='" . sql_pgsql_escape($s) . "'";
+}
+
+
 // Generate non-standard SQL to match a string anywhere in a field's value
 // in a case insensitive manner. $s is the un-escaped/un-slashed string.
 // In PostgreSQL, we can do case insensitive regexp with ~*, but not case
@@ -299,6 +381,15 @@ function sql_pgsql_syntax_createtable_autoincrementcolumn($db_conn = null)
   sql_pgsql_ensure_handle($db_conn);
 
   return "serial";
+}
+
+
+// Returns the syntax for a bitwise XOR operator
+function sql_pgsql_syntax_bitwise_xor($db_conn = null)
+{
+  sql_pgsql_ensure_handle($db_conn);
+
+  return "#";
 }
 
 
@@ -352,19 +443,137 @@ function sql_pgsql_num_fields($result, $db_conn = null)
 function sql_pgsql_table_exists($table, $db_conn = null)
 {
   sql_pgsql_ensure_handle($db_conn);
+  
+  // $table can be a qualified name.  We need to resolve it if necessary into its component
+  // parts, the schema and table names
+  $table_parts = sql_pgsql_resolve_table($table);
+  
+  $sql = "SELECT COUNT(*)
+            FROM information_schema.tables
+           WHERE table_name ='" . sql_pgsql_escape($table_parts['table_name']) . "'";
+  if (isset($table_parts['table_schema']))
+  {
+    $sql .= " AND table_schema = '" . sql_pgsql_escape($table_parts['table_schema']) . "'";
+  }
 
-  $res = sql_pgsql_query1("SELECT relname FROM pg_class ".
-                          "WHERE relname = '".addslashes($table)."'");
+  $res = sql_pgsql_query1($sql, $db_conn);
+  
+  if ($res < 0)
+  {
+    trigger_error(pg_last_error($db_conn), E_USER_WARNING);
+    fatal_error(FALSE, get_vocab("fatal_db_error"));
+  }
 
-  return ($res == -1) ? FALSE : TRUE;
+  return ($res == 1) ? TRUE : FALSE;
+}
+
+
+// Get information about the columns in a table
+// Returns an array with the following indices for each column
+//
+//  'name'        the column name
+//  'type'        the type as reported by PostgreSQL
+//  'nature'      the type mapped onto one of a generic set of types
+//                (boolean, integer, real, character, binary).   This enables
+//                the nature to be used by MRBS code when deciding how to 
+//                display fields, without MRBS having to worry about the 
+//                differences between MySQL and PostgreSQL type names.
+//  'length'      the maximum length of the field in bytes, octets or characters
+//                (Note:  this could be NULL)
+//  'is_nullable' whether the column can be set to NULL (boolean)
+//
+//  NOTE: the type mapping is incomplete and just covers the types commonly
+//  used by MRBS
+function sql_pgsql_field_info($table, $db_conn = null)
+{
+  sql_pgsql_ensure_handle($db_conn);
+  
+  // Map PostgreSQL types on to a set of generic types
+  $nature_map = array('bigint'            => 'integer',
+                      'boolean'           => 'boolean',
+                      'bytea'             => 'binary',
+                      'character'         => 'character',
+                      'character varying' => 'character',
+                      'double precision'  => 'real',
+                      'integer'           => 'integer',
+                      'real'              => 'real',
+                      'smallint'          => 'integer',
+                      'text'              => 'character');
+  
+  // $table can be a qualified name.  We need to resolve it if necessary into its component
+  // parts, the schema and table names
+  $table_parts = sql_pgsql_resolve_table($table);
+  
+  // $table_name and $table_schema should be trusted but escape them anyway for good measure
+  $sql = "SELECT column_name, data_type, numeric_precision, character_maximum_length,
+                 character_octet_length, is_nullable
+            FROM information_schema.columns
+           WHERE table_name ='" . sql_pgsql_escape($table_parts['table_name']) . "'";
+  if (isset($table_parts['table_schema']))
+  {
+    $sql .= " AND table_schema = '" . sql_pgsql_escape($table_parts['table_schema']) . "'";
+  }
+  $sql .= "ORDER BY ordinal_position";
+  
+  $res = sql_pgsql_query($sql, $db_conn);
+  if ($res === FALSE)
+  {
+    trigger_error(pg_result_error($res), E_USER_WARNING);
+    fatal_error(TRUE, get_vocab("fatal_db_error"));
+  }
+  else
+  {
+    $fields = array();
+    for ($i = 0; ($row = sql_pgsql_row_keyed($res, $i)); $i++)
+    {
+      $name = $row['column_name'];
+      $type = $row['data_type'];
+      // map the type onto one of the generic natures, if a mapping exists
+      $nature = (array_key_exists($type, $nature_map)) ? $nature_map[$type] : $type;
+      // Get a length value;  one of these values should be set
+      if (isset($row['numeric_precision']))
+      {
+        $length = (int) floor($row['numeric_precision'] / 8);  // precision is in bits
+      }
+      elseif (isset($row['character_maximum_length']))
+      {
+        $length = $row['character_maximum_length'];
+      }
+      elseif (isset($row['character_octet_length']))
+      {
+        $length = $row['character_octet_length'];
+      }
+      // Convert the is_nullable field to a boolean
+      $is_nullable = (utf8_strtolower($row['is_nullable']) == 'yes') ? TRUE : FALSE;
+      
+      $fields[$i]['name'] = $name;
+      $fields[$i]['type'] = $type;
+      $fields[$i]['nature'] = $nature;
+      $fields[$i]['length'] = $length;
+      $fields[$i]['is_nullable'] = $is_nullable;
+    }
+    return $fields;
+  }
 }
 
 
 // Connect to a database server and select a database, optionally using
 // persistent connections
 function sql_pgsql_connect($host, $username, $password, $db_name,
-                           $persist = 0)
+                           $persist = 0, $db_port = 5432)
 {
+  static $shutdown_registered = FALSE;
+  
+  if (!$shutdown_registered)
+  {
+    register_shutdown_function('sql_pgsql_cleanup');
+    $shutdown_registered = TRUE;
+  }
+  
+  if (empty($db_port))
+  {
+    $db_port = 5432;
+  }
   // Establish a database connection.
 
   // On connection error, the message will be output without a proper HTML
@@ -372,7 +581,7 @@ function sql_pgsql_connect($host, $username, $password, $db_name,
   // there seems to be no way to supress the automatic error message output and
   // still be able to access the error text.
 
-  $conninfo = (empty($host) ? "" : "host=$host ") .
+  $conninfo = (empty($host) ? "" : "host=$host port=$db_port ") .
     "dbname=$db_name user=$username password=$password";
 
   if ($persist)
@@ -391,7 +600,9 @@ function sql_pgsql_connect($host, $username, $password, $db_name,
     echo "\n<p>\n" . get_vocab("failed_connect_db") . "\n</p>\n";
     exit;
   }
-
+  
+  pg_set_client_encoding($db_conn, 'UTF8');
+  
   return $db_conn;
 }
 
@@ -400,7 +611,7 @@ function sql_pgsql_connect($host, $username, $password, $db_name,
 function sql_pgsql_default_connect()
 {
   global $sql_pgsql_conn, $db_nopersist, $db_host, $db_login, $db_password,
-         $db_database;
+         $db_database, $db_port;
 
   /////////////////////////////////////////////
   // Open the standard MRBS database connection
@@ -412,8 +623,15 @@ function sql_pgsql_default_connect()
   }
   global $sql_pgsql_conn;
 
+  $port = null;
+  // If a port is specified, cast it to int for safety
+  if (isset($db_port))
+  {
+    $port = (int)$db_port;
+  }
+
   $sql_pgsql_conn = sql_pgsql_connect($db_host, $db_login, $db_password,
-                                      $db_database, $persist);
+                                      $db_database, $persist, $port);
 }
 
 
@@ -423,4 +641,3 @@ function sql_pgsql_close($connection)
   pg_close($connection);
 }
 
-?>

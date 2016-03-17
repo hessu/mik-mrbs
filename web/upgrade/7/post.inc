@@ -1,6 +1,6 @@
 <?php
 
-// $Id: post.inc 1225 2009-10-21 20:43:03Z cimorrison $
+// $Id$
 
 // Update the area table getting rid of NULLs for the private settings and replacing them
 // with the default settings.
@@ -30,4 +30,3 @@ if (sql_command("UPDATE $tbl_area SET private_override='$private_override' WHERE
   fatal_error(0, "Error updating table. " . sql_error());
 }
 
-?>

@@ -1,4 +1,4 @@
-# $Id: upgrade.my.sql 798 2008-04-13 19:59:24Z jberanek $
+# $Id$
 
 drop table mrbs_entry_tmp;
 

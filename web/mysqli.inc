@@ -1,5 +1,5 @@
 <?php
-// $Id: mysqli.inc 1269 2009-11-24 21:21:09Z jberanek $
+// $Id$
 
 // mysqli.inc - Simple PHP database support for MySQL, using mysqli extension.
 // The standard MRBS database connection utilises the following configuration
@@ -31,6 +31,29 @@ function sql_mysqli_free ($r, $db_conn = null)
   sql_mysqli_ensure_handle($db_conn);
 
   $r->close();
+}
+
+
+// Escapes special characters in a string for use in an SQL statement
+function sql_mysqli_escape($str, $db_conn = null)
+{
+  sql_mysqli_ensure_handle($db_conn);
+  
+  if (function_exists('mysqli_real_escape_string'))
+  {
+    return mysqli_real_escape_string($db_conn, $str);
+  }
+  else
+  {
+    return addslashes($str);
+  }
+}
+
+
+// Quote a table or column name
+function sql_mysqli_quote($identifier)
+{
+  return '`' . $identifier . '`';
 }
 
 
@@ -83,7 +106,7 @@ function sql_mysqli_query1 ($sql, $db_conn = null)
 
 // Execute an SQL query. Returns a database-dependent result handle,
 // which should be passed back to sql_row or sql_row_keyed to get the results.
-// Returns 0 on error; use sql_error to get the error message.
+// Returns FALSE on error; use sql_error to get the error message.
 function sql_mysqli_query ($sql, $db_conn = null)
 {
   sql_mysqli_ensure_handle($db_conn);
@@ -128,7 +151,9 @@ function sql_mysqli_row_keyed ($r, $i, $db_conn = null)
     return 0;
   }
   $r->data_seek($i);
-  return $r->fetch_array();
+  // Use _assoc rather than _array because _array doesn't have
+  // an ASSOC parameter.  No impact on PHP version support.
+  return $r->fetch_assoc();
 }
 
 
@@ -161,16 +186,39 @@ function sql_mysqli_error($db_conn = null)
 
 
 // Begin a transaction, if the database supports it. This is used to
-// improve PostgreSQL performance for multiple insert/delete/updates.
-// There is no rollback support, since MySQL doesn't support it.
+// improve performance for multiple insert/delete/updates.
 function sql_mysqli_begin($db_conn = null)
 {
+  $result = sql_mysqli_command("START TRANSACTION", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error ($db_conn->error, E_USER_WARNING);
+  }
 }
 
 
 // Commit (end) a transaction. See sql_begin().
 function sql_mysqli_commit($db_conn = null)
 {
+  $result = sql_mysqli_command("COMMIT", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error ($db_conn->error, E_USER_WARNING);
+  }
+}
+
+
+// Rollback a transaction. See sql_begin().
+function sql_mysqli_rollback($db_conn = null)
+{
+  $result = sql_mysqli_command("ROLLBACK", $db_conn);
+  
+  if ($result < 0)
+  {
+    trigger_error ($db_conn->error, E_USER_WARNING);
+  }
 }
 
 
@@ -187,20 +235,38 @@ function sql_mysqli_commit($db_conn = null)
 // In MySQL, we avoid table locks, and use low-level locks instead.
 function sql_mysqli_mutex_lock($name, $db_conn = null)
 {
+  global $sql_mutex_unlock_name;
+  
   sql_mysqli_ensure_handle($db_conn);
 
-  global $sql_mutex_shutdown_registered, $sql_mutex_unlock_name;
-  if (!sql_mysqli_query1("SELECT GET_LOCK('$name', 20)", $db_conn))
+  // GET_LOCK returns 1 if the lock was obtained successfully, 0 if the attempt
+  // timed out (for example, because another client has previously locked the name),
+  // or NULL if an error occurred (such as running out of memory or the thread was
+  // killed with mysqladmin kill)
+  $r = $db_conn->query("SELECT GET_LOCK('$name', 20)");
+  if ($r === FALSE)
   {
-    return 0;
+    trigger_error($db_conn->error, E_USER_WARNING);
+    return FALSE;
   }
-  $sql_mysqli_mutex_unlock_name = $name;
-  if (empty($sql_mysqli_mutex_shutdown_registered))
+
+  if (($r->num_rows != 1) || 
+      ($r->field_count != 1) ||
+      (($row = $r->fetch_row()) === NULL))
   {
-    register_shutdown_function("sql_mysqli_mutex_cleanup", $db_conn);
-    $sql_mysqli_mutex_shutdown_registered = 1;
+    return FALSE;
   }
-  return 1;
+  else
+  {
+    $result = $row[0];
+  }
+  
+  if ($result == 1)
+  {
+    $sql_mysqli_mutex_unlock_name = $name;
+  }
+  $r->free();
+  return $result;
 }
 
 
@@ -211,19 +277,23 @@ function sql_mysqli_mutex_unlock($name, $db_conn = null)
 
   global $sql_mysqli_mutex_unlock_name;
   sql_mysqli_query1("SELECT RELEASE_LOCK('$name')", $db_conn);
-  $sql_mysqli_mutex_unlock_name = "";
+  $sql_mysqli_mutex_unlock_name = NULL;
 }
 
 
-// Shutdown function to clean up a forgotten lock. For internal use only.
-function sql_mysqli_mutex_cleanup($db_conn = null)
+// Shutdown function to clean up the connection. For internal use only.
+function sql_mysqli_cleanup($db_conn = null)
 {
-  global $sql_mysqli_mutex_shutdown_registered, $sql_mysqli_mutex_unlock_name;
-  if (!empty($sql_mysqli_mutex_unlock_name))
+  global $sql_mysqli_mutex_unlock_name;
+  
+  // Release any forgotten locks
+  if (isset($sql_mysqli_mutex_unlock_name))
   {
     sql_mysqli_mutex_unlock($sql_mysqli_mutex_unlock_name, $db_conn);
-    $sql_mysqli_mutex_unlock_name = "";
   }
+  
+  // Rollback any outstanding transactions
+  sql_mysqli_rollback($db_conn);
 }
 
 
@@ -257,6 +327,18 @@ function sql_mysqli_syntax_timestamp_to_unix($fieldname, $db_conn = null)
   return " UNIX_TIMESTAMP($fieldname) ";
 }
 
+
+// Returns the syntax for a case sensitive string "equals" function
+// (By default MySQL is case insensitive, so we force a binary comparison)
+// NB:  This function is also assumed to do a strict comparison, ie
+// take account of training spaces.  (The '=' comparison in MySQL allows
+// trailing spaces, eg 'john' = 'john ').
+function sql_mysqli_syntax_casesensitive_equals($fieldname, $s, $db_conn = null)
+{
+  sql_mysqli_ensure_handle($db_conn);
+
+  return " BINARY " . sql_mysqli_quote($fieldname) . "='" . sql_mysqli_escape($s) . "'";
+}
 
 // Generate non-standard SQL to match a string anywhere in a field's value
 // in a case insensitive manner. $s is the un-escaped/un-slashed string.
@@ -292,6 +374,16 @@ function sql_mysqli_syntax_createtable_autoincrementcolumn($db_conn = null)
 
   return "int NOT NULL auto_increment";
 }
+
+
+// Returns the syntax for a bitwise XOR operator
+function sql_mysqli_syntax_bitwise_xor($db_conn = null)
+{
+  sql_mysqli_ensure_handle($db_conn);
+
+  return "^";
+}
+
 
 // Returns the name of a field.
 function sql_mysqli_field_name($result, $index, $db_conn = null)
@@ -347,18 +439,130 @@ function sql_mysqli_table_exists($table, $db_conn = null)
 {
   sql_mysqli_ensure_handle($db_conn);
 
-  $res = sql_mysqli_query1("SHOW TABLES LIKE '".addslashes($table)."'");
+  $res = sql_mysqli_query1("SHOW TABLES LIKE '" . sql_mysqli_escape($table) . "'", $db_conn);
 
+  if ($res < 0)
+  {
+    trigger_error($db_conn->error, E_USER_WARNING);
+    fatal_error(FALSE, get_vocab("fatal_db_error"));
+  }
+  
   return ($res == -1) ? FALSE : TRUE;
+}
+
+
+// Get information about the columns in a table
+// Returns an array with the following indices for each column
+//
+//  'name'        the column name
+//  'type'        the type as reported by MySQL
+//  'nature'      the type mapped onto one of a generic set of types
+//                (boolean, integer, real, character, binary).   This enables
+//                the nature to be used by MRBS code when deciding how to 
+//                display fields, without MRBS having to worry about the 
+//                differences between MySQL and PostgreSQL type names.
+//  'length'      the maximum length of the field in bytes, octets or characters
+//                (Note:  this could be NULL)
+//  'is_nullable' whether the column can be set to NULL (boolean)
+//
+//  NOTE: the type mapping is incomplete and just covers the types commonly
+//  used by MRBS
+function sql_mysqli_field_info($table, $db_conn = null)
+{
+  sql_mysqli_ensure_handle($db_conn);
+  
+  // Map MySQL types on to a set of generic types
+  $nature_map = array('bigint'    => 'integer',
+                      'char'      => 'character',
+                      'double'    => 'real',
+                      'float'     => 'real',
+                      'int'       => 'integer',
+                      'mediumint' => 'integer',
+                      'smallint'  => 'integer',
+                      'text'      => 'character',
+                      'tinyint'   => 'integer',
+                      'tinytext'  => 'character',
+                      'varchar'   => 'character');
+  
+  // Length in bytes of MySQL integer types                                        
+  $int_bytes = array('bigint'    => 8, // bytes
+                     'int'       => 4,
+                     'mediumint' => 3,
+                     'smallint'  => 2,
+                     'tinyint'   => 1);
+  
+  $res = sql_mysqli_query("SHOW COLUMNS FROM $table");
+  if ($res === FALSE)
+  {
+    trigger_error($db_conn->error, E_USER_WARNING);
+    fatal_error(TRUE, get_vocab("fatal_db_error"));
+  }
+  else
+  {
+    $fields = array();
+    for ($i = 0; ($row = sql_mysqli_row_keyed($res, $i)); $i++)
+    {
+      $name = $row['Field'];
+      $type = $row['Type'];
+      // split the type (eg 'varchar(25)') around the opening '('
+      $parts = explode('(', $type);
+      // map the type onto one of the generic natures, if a mapping exists
+      $nature = (array_key_exists($parts[0], $nature_map)) ? $nature_map[$parts[0]] : $parts[0];
+      // now work out the length
+      if ($nature == 'integer')
+      {
+        // if it's one of the ints, then look up the length in bytes
+        $length = (array_key_exists($parts[0], $int_bytes)) ? $int_bytes[$parts[0]] : 0;
+      }
+      elseif ($nature == 'character')
+      {
+        // if it's a character type then use the length that was in parentheses
+        // eg if it was a varchar(25), we want the 25
+        if (isset($parts[1]))
+        {
+          $length = preg_replace('/\)/', '', $parts[1]);  // strip off the closing ')'
+        }
+        // otherwise it could be any length (eg if it was a 'text')
+        else
+        {
+          $length = defined('PHP_INT_MAX') ? PHP_INT_MAX : 9999;
+        }
+      }
+      else  // we're only dealing with a few simple cases at the moment
+      {
+        $length = NULL;
+      }
+      // Convert the is_nullable field to a boolean
+      $is_nullable = (utf8_strtolower($row['Null']) == 'yes') ? TRUE : FALSE;
+      
+      $fields[$i]['name'] = $name;
+      $fields[$i]['type'] = $type;
+      $fields[$i]['nature'] = $nature;
+      $fields[$i]['length'] = $length;
+      $fields[$i]['is_nullable'] = $is_nullable;
+    }
+    return $fields;
+  }
 }
 
 
 // Connect to a database server and select a database, optionally using
 // persistent connections
 function sql_mysqli_connect($host, $username, $password,
-                            $db_name, $persist = 0)
+                            $db_name, $persist = 0, $db_port = 3306)
 {
-  global $unicode_encoding;
+  static $shutdown_registered = FALSE;
+  
+  if (!$shutdown_registered)
+  {
+    register_shutdown_function('sql_mysqli_cleanup');
+    $shutdown_registered = TRUE;
+  }
+  
+  if (empty($db_port))
+  {
+    $db_port = 3306;
+  }
 
   // Establish a database connection.
 
@@ -377,24 +581,22 @@ function sql_mysqli_connect($host, $username, $password,
     $full_host = $host;
   }
   
-  $db_conn = new mysqli($full_host, $username, $password, $db_name);
+  $db_conn = new mysqli($full_host, $username, $password, $db_name, $db_port);
 
   /* check connection */
   if (mysqli_connect_errno())
   {
-    echo "\n<p>\n" . get_vocab("failed_connect_db") . " : " . mysqli_connect_error() . "\n</p>\n";
+    trigger_error(mysqli_connect_error(), E_USER_WARNING);
+    echo "\n<p>\n" . get_vocab("failed_connect_db") . "\n</p>\n";
     exit;
   }
-  if ($unicode_encoding)
+  if (function_exists('mysqli_set_charset'))
   {
-    if (function_exists('mysqli_set_charset'))
-    {
-      $db_conn->set_charset("utf8");
-    }
-    else
-    {
-      $db_conn->query("SET NAMES 'utf8'");
-    }
+    $db_conn->set_charset("utf8");
+  }
+  else
+  {
+    $db_conn->query("SET NAMES 'utf8'");
   }
   return $db_conn;
 }
@@ -404,7 +606,7 @@ function sql_mysqli_connect($host, $username, $password,
 function sql_mysqli_default_connect()
 {
   global $sql_mysqli_conn, $db_nopersist, $db_host, $db_login, $db_password,
-         $db_database;
+         $db_database, $db_port;
 
   /////////////////////////////////////////////
   // Open the standard MRBS database connection
@@ -415,8 +617,15 @@ function sql_mysqli_default_connect()
     $persist = 0;
   }
 
+  $port = NULL;
+  // If a port is specified, cast it to int as mysqli doesn't accept
+  // a string port specifier
+  if (isset($db_port))
+  {
+    $port = (int)$db_port;
+  }
   $sql_mysqli_conn = sql_mysqli_connect($db_host, $db_login, $db_password,
-                                        $db_database, $persist);
+                                        $db_database, $persist, $port);
 }
 
 
@@ -426,4 +635,3 @@ function sql_mysqli_close($connection)
   mysqli_close($connection);
 }
 
-?>

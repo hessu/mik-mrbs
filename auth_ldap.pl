@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# $Id: auth_ldap.pl 802 2008-04-17 20:29:24Z jberanek $
+# $Id$
 
 $server = shift;
 $dn = shift;

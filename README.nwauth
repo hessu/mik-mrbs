@@ -44,4 +44,4 @@ web server PATH). If authentication fails, and your Apache error log
 contains messages about nwsfind, try creating a link from /bin/nwsfind
 to the actual path of nwsfind.
 
-$Id: README.nwauth 1012 2009-02-06 13:11:29Z jberanek $
+$Id$

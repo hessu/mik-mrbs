@@ -1,4 +1,4 @@
--- $Id: purge.my.sql 798 2008-04-13 19:59:24Z jberanek $
+-- $Id$
 --
 -- mrbs/purge.my.sql 2001-01-13 : Purge old MRBS entries, for MySQL
 --

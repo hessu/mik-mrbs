@@ -1,4 +1,4 @@
--- $Id: pgsql.sql 1051 2009-03-18 19:14:51Z cimorrison $
+-- $Id$
 
 ALTER TABLE %DB_TBL_PREFIX%area 
 ADD COLUMN resolution            int,

@@ -1,4 +1,4 @@
-# $Id: mysql.sql 1129 2009-06-24 15:47:32Z cimorrison $
+# $Id$
 
 ALTER TABLE %DB_TBL_PREFIX%area 
 ADD COLUMN private_enabled       tinyint(1),

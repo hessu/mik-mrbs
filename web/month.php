@@ -1,21 +1,13 @@
 <?php
-// $Id: month.php 1231 2009-10-27 16:52:17Z cimorrison $
+// $Id$
 
 // mrbs/month.php - Month-at-a-time view
 
-require_once "defaultincludes.inc";
-
+require "defaultincludes.inc";
 require_once "mincals.inc";
+require_once "functions_table.inc";
 
-// Get form variables
-$day = get_form_var('day', 'int');
-$month = get_form_var('month', 'int');
-$year = get_form_var('year', 'int');
-$area = get_form_var('area', 'int');
-$room = get_form_var('room', 'int');
 $debug_flag = get_form_var('debug_flag', 'int');
-
-$user = getUserName();
 
 // 3-value compare: Returns result of compare as "< " "= " or "> ".
 function cmp3($a, $b)
@@ -31,51 +23,83 @@ function cmp3($a, $b)
   return "> ";
 }
 
-// Default parameters:
-if (empty($debug_flag))
-{
-  $debug_flag = 0;
-}
 
-if (empty($area))
-{
-  $area = get_default_area();
-}
+// Describe the start and end time, accounting for "all day"
+// and for entries starting before/ending after today.
+// There are 9 cases, for start time < = or > midnight this morning,
+// and end time < = or > midnight tonight.
 
-// Get the timeslot settings (resolution, etc.) for this area
-get_area_settings($area);
-
-// If we don't know the right date then use today:
-if (!isset($day) or !isset($month) or !isset($year))
+function get_booking_summary($start, $end, $day_start, $day_end)
 {
-  $day   = date("d");
-  $month = date("m");
-  $year  = date("Y");
-}
-else
-{
-  // Make the date valid if day is more than number of days in month:
-  while (!checkdate($month, $day, $year))
+  global $enable_periods;
+  
+  // Use ~ (not -) to separate the start and stop times, because MSIE
+  // will incorrectly line break after a -.
+  $separator = '~';
+  $after_today = "====&gt;";
+  $before_today = "&lt;====";
+  $midnight = "24:00";  // need to fix this so it works with AM/PM configurations (and for that matter 24h)
+  // Localized "all day" text but with non-breaking spaces:
+  $all_day = preg_replace("/ /", "&nbsp;", get_vocab("all_day"));
+  
+  if ($enable_periods)
   {
-    $day--;
-    if ($day == 0)
-    {
-      $day   = date("d");
-      $month = date("m");
-      $year  = date("Y");   
-      break;
-    }
+    $start_str = period_time_string($start);
+    $end_str   = period_time_string($end, -1);
   }
+  else
+  {
+    $start_str = htmlspecialchars(utf8_strftime(hour_min_format(), $start));
+    $end_str   = htmlspecialchars(utf8_strftime(hour_min_format(), $end));
+  }
+ 
+  switch (cmp3($start, $day_start) . cmp3($end, $day_end + 1))
+  {
+    case "> < ":         // Starts after midnight, ends before midnight
+    case "= < ":         // Starts at midnight, ends before midnight
+      $result = $start_str;
+      // Don't bother showing the end if it's the same as the start period
+      if ($end_str !== $start_str)
+      {
+        $result .= $separator . $end_str;
+      }
+      break;
+    case "> = ":         // Starts after midnight, ends at midnight
+      $result = $start_str . $separator . $midnight;
+      break;
+    case "> > ":         // Starts after midnight, continues tomorrow
+      $result = $start_str . $separator . $after_today;
+      break;
+    case "= = ":         // Starts at midnight, ends at midnight
+      $result = $all_day;
+      break;
+    case "= > ":         // Starts at midnight, continues tomorrow
+      $result = $all_day . $after_today;
+      break;
+    case "< < ":         // Starts before today, ends before midnight
+      $result = $before_today . $separator .  $end_str;
+      break;
+    case "< = ":         // Starts before today, ends at midnight
+      $result = $before_today . $all_day;
+      break;
+    case "< > ":         // Starts before today, continues tomorrow
+      $result = $before_today . $all_day . $after_today;
+      break;
+  }
+  
+  return $result;
 }
 
+
+// Check the user is authorised for this page
+checkAuthorised();
+
+$user = getUserName();
 
 // print the page header
 print_header($day, $month, $year, $area, isset($room) ? $room : "");
 
-if (empty($room))
-{
-  $room = get_default_room($area);
-}
+
 // Note $room will be 0 if there are no rooms; this is checked for below.
 
 // Month view start time. This ignores morningstarts/eveningends because it
@@ -90,10 +114,11 @@ $days_in_month = date("t", $month_start);
 
 $month_end = mktime(23, 59, 59, $month, $days_in_month, $year);
 
-if ( $enable_periods )
+if ($enable_periods)
 {
   $resolution = 60;
   $morningstarts = 12;
+  $morningstarts_minutes = 0;
   $eveningends = 12;
   $eveningends_minutes = count($periods)-1;
 }
@@ -108,107 +133,50 @@ for ($j = 1; $j<=$days_in_month; $j++)
   // -1 => no change
   //  0 => entering DST
   //  1 => leaving DST
-  $dst_change[$j] = is_dst($month,$j,$year);
-  if (empty( $enable_periods ))
-  {
-    $midnight[$j]=mktime(0,0,0,$month,$j,$year, is_dst($month,$j,$year, 0));
-    $midnight_tonight[$j]=mktime(23,59,59,$month,$j,$year, is_dst($month,$j,$year, 23));
-  }
-  else
-  {
-    $midnight[$j]=mktime(12,0,0,$month,$j,$year, is_dst($month,$j,$year, 0));
-    $midnight_tonight[$j]=mktime(12,count($periods),59,$month,$j,$year, is_dst($month,$j,$year, 23));
-  }
+  $dst_change[$j] = is_dst($month, $j, $year);
+  $am7[$j] = get_start_first_slot($month, $j, $year);
+  $pm7[$j] = get_start_last_slot($month, $j, $year);
 }
 
 // Section with areas, rooms, minicals.
-?>
-<div class="screenonly">
-  <div id="dwm_header">
-<?php
+echo "<div id=\"dwm_header\" class=\"screenonly\">\n";
 
 // Get the area and room names (we will need them later for the heading)
-$this_area_name = "";
-$this_room_name = "";
-$this_area_name = htmlspecialchars(sql_query1("select area_name
-                                  from $tbl_area where id=$area"));
-$this_room_name = htmlspecialchars(sql_query1("select room_name
-                                  from $tbl_room where id=$room"));
-                                  
-$sql = "select id, area_name from $tbl_area order by area_name";
-$res = sql_query($sql);
+$this_area_name = get_area_name($area);
+$this_room_name = get_room_name($room);
+// The room is invalid if it doesn't exist, or else it has been disabled, either explicitly
+// or implicitly because the area has been disabled
+$room_invalid = !isset($this_area_name) || ($this_area_name === FALSE) ||
+                !isset($this_room_name) || ($this_room_name === FALSE);
+                          
 // Show all available areas
-// but only if there's more than one of them, otherwise there's no point
-if ($res && (sql_count($res)>1))
-{
-  echo "<div id=\"dwm_areas\"><h3>".get_vocab("areas")."</h3>";
-  
-  // show either a select box or the normal html list
-  if ($area_list_format == "select")
-  {
-    echo make_area_select_html('month.php', $area, $year, $month, $day);
-  }
-  else
-  {
-    echo "<ul>\n";
-    for ($i = 0; ($row = sql_row_keyed($res, $i)); $i++)
-    {
-      echo "<li><a href=\"month.php?year=$year&amp;month=$month&amp;day=$day&amp;area=$row[0]\">";
-      echo "<span" . (($row['id'] == $area) ? ' class="current"' : '') . ">";
-      echo htmlspecialchars($row['area_name']) . "</span></a></li>\n";
-    }
-    echo "</ul>\n";
-  } // end select if
-  
-  echo "</div>\n";
-}
-    
-// Show all rooms in the current area:
-echo "<div id=\"dwm_rooms\"><h3>".get_vocab("rooms")."</h3>";
-
-// should we show a drop-down for the room list, or not?
-if ($area_list_format == "select")
-{
-  echo make_room_select_html('month.php', $area, $room, $year, $month, $day);
-}
-else
-{
-  $sql = "select id, room_name from $tbl_room
-          where area_id=$area order by sort_key";
-  $res = sql_query($sql);
-  if ($res)
-  {
-    echo "<ul>\n";
-    for ($i = 0; ($row = sql_row_keyed($res, $i)); $i++)
-    {
-      echo "<li><a href=\"month.php?year=$year&amp;month=$month&amp;day=$day&amp;area=$area&amp;room=".$row['id']."\">";
-      echo "<span" . (($row['id'] == $room) ? ' class="current"' : '') . ">";
-      echo htmlspecialchars($row['room_name']) . "</span></a></li>\n";
-    }
-    echo "</ul>\n";
-  }
-} // end select if
-
-echo "</div>\n";
+echo make_area_select_html('month.php', $area, $year, $month, $day);  
+// Show all available rooms in the current area:
+echo make_room_select_html('month.php', $area, $room, $year, $month, $day);
     
 // Draw the three month calendars
-minicals($year, $month, $day, $area, $room, 'month');
+if (!$display_calendar_bottom)
+{
+  minicals($year, $month, $day, $area, $room, 'month');
+}
+
 echo "</div>\n";
 
-// End of "screenonly" div
-echo "</div>\n";
 
-// Don't continue if this area has no rooms:
-if ($room <= 0)
+// Don't continue if this room is invalid, which could be because the area
+// has no rooms, or else the room or area has been disabled
+if ($room_invalid)
 {
   echo "<h1>".get_vocab("no_rooms_for_area")."</h1>";
-  require_once "trailer.inc";
+  output_trailer();
   exit;
 }
 
 // Show Month, Year, Area, Room header:
-echo "<h2 id=\"dwm\">" . utf8_strftime("%B %Y", $month_start)
-  . " - $this_area_name - $this_room_name</h2>\n";
+echo "<div id=\"dwm\">\n";
+echo "<h2>" . utf8_strftime($strftime_format['monthyear'], $month_start)
+  . " - " . htmlspecialchars("$this_area_name - $this_room_name") . "</h2>\n";
+echo "</div>\n";
 
 // Show Go to month before and after links
 //y? are year and month and day of the previous month.
@@ -219,41 +187,26 @@ $i= mktime(12,0,0,$month-1,1,$year);
 $yy = date("Y",$i);
 $ym = date("n",$i);
 $yd = $day;
-while (!checkdate($ym, $yd, $yy))
+while (!checkdate($ym, $yd, $yy) && ($yd > 1))
 {
   $yd--;
-  if ($yd == 0)
-  {
-    $yd   = 1;
-    break;
-  }
 }
 
 $i= mktime(12,0,0,$month+1,1,$year);
 $ty = date("Y",$i);
 $tm = date("n",$i);
 $td = $day;
-while (!checkdate($tm, $td, $ty))
+while (!checkdate($tm, $td, $ty) && ($td > 1))
 {
   $td--;
-  if ($td == 0)
-  {
-    $td   = 1;
-    break;
-  }
 }
 
 $cy = date("Y");
 $cm = date("m");
 $cd = $day;    // preserve the day information
-while (!checkdate($cm, $cd, $cy))
+while (!checkdate($cm, $cd, $cy) && ($cd > 1))
 {
   $cd--;
-  if ($cd == 0)
-  {
-    $cd   = 1;
-    break;
-  }
 }
 
 
@@ -285,9 +238,6 @@ if ($debug_flag)
   echo "<p>DEBUG: month=$month year=$year start=$weekday_start range=$month_start:$month_end</p>\n";
 }
 
-// Used below: localized "all day" text but with non-breaking spaces:
-$all_day = preg_replace("/ /", "&nbsp;", get_vocab("all_day"));
-
 //Get all meetings for this month in the room that we care about
 // row[0] = Start time
 // row[1] = End time
@@ -296,11 +246,11 @@ $all_day = preg_replace("/ /", "&nbsp;", get_vocab("all_day"));
 for ($day_num = 1; $day_num<=$days_in_month; $day_num++)
 {
   $sql = "SELECT start_time, end_time, id, name, type,
-          private, create_by
-          FROM $tbl_entry
-          WHERE room_id=$room
-          AND start_time <= $midnight_tonight[$day_num] AND end_time > $midnight[$day_num]
-          ORDER by start_time";
+                 repeat_id, status, create_by
+            FROM $tbl_entry
+           WHERE room_id=$room
+             AND start_time <= $pm7[$day_num] AND end_time > $am7[$day_num]
+        ORDER BY start_time";
 
   // Build an array of information about each day in the month.
   // The information is stored as:
@@ -310,7 +260,8 @@ for ($day_num = 1; $day_num<=$days_in_month; $day_num++)
   $res = sql_query($sql);
   if (! $res)
   {
-    echo sql_error();
+    trigger_error(sql_error(), E_USER_WARNING);
+    fatal_error(TRUE, get_vocab("fatal_db_error"));
   }
   else
   {
@@ -326,11 +277,13 @@ for ($day_num = 1; $day_num<=$days_in_month; $day_num++)
         echo "<br>DEBUG: Entry ".$row['id']." day $day_num\n";
       }
       $d[$day_num]["id"][] = $row['id'];
+      $d[$day_num]["color"][] = $row['type'];
+      $d[$day_num]["is_repeat"][] = isset($row['repeat_id']);
       
       // Handle private events
-      if (is_private_event($row['private'])) 
+      if (is_private_event($row['status'] & STATUS_PRIVATE)) 
       {
-        if (getWritable($row['create_by'],$user)) 
+        if (getWritable($row['create_by'], $user, $room)) 
         {
           $private = FALSE;
         }
@@ -344,90 +297,21 @@ for ($day_num = 1; $day_num<=$days_in_month; $day_num++)
         $private = FALSE;
       }
 
-      if ($private) 
+      if ($private & $is_private_field['entry.name']) 
       {
+        $d[$day_num]["status"][] = $row['status'] | STATUS_PRIVATE;  // Set the private bit
         $d[$day_num]["shortdescrip"][] = '['.get_vocab('unavailable').']';
       }
       else
       {
+        $d[$day_num]["status"][] = $row['status'] & ~STATUS_PRIVATE;  // Clear the private bit
         $d[$day_num]["shortdescrip"][] = htmlspecialchars($row['name']);
       }
       
-      $d[$day_num]["is_private"][] = $private;
-      
-      $d[$day_num]["color"][] = $row['type'];
-
-      // Describe the start and end time, accounting for "all day"
-      // and for entries starting before/ending after today.
-      // There are 9 cases, for start time < = or > midnight this morning,
-      // and end time < = or > midnight tonight.
-      // Use ~ (not -) to separate the start and stop times, because MSIE
-      // will incorrectly line break after a -.
-      
-      if (empty( $enable_periods ) )
-      {
-        switch (cmp3($row['start_time'], $midnight[$day_num]) . cmp3($row['end_time'], $midnight_tonight[$day_num] + 1))
-        {
-          case "> < ":         // Starts after midnight, ends before midnight
-          case "= < ":         // Starts at midnight, ends before midnight
-            $d[$day_num]["data"][] = htmlspecialchars(utf8_strftime(hour_min_format(), $row['start_time'])) . "~" . htmlspecialchars(utf8_strftime(hour_min_format(), $row['end_time']));
-            break;
-          case "> = ":         // Starts after midnight, ends at midnight
-            $d[$day_num]["data"][] = htmlspecialchars(utf8_strftime(hour_min_format(), $row['start_time'])) . "~24:00";
-            break;
-          case "> > ":         // Starts after midnight, continues tomorrow
-            $d[$day_num]["data"][] = htmlspecialchars(utf8_strftime(hour_min_format(), $row['start_time'])) . "~====&gt;";
-            break;
-          case "= = ":         // Starts at midnight, ends at midnight
-            $d[$day_num]["data"][] = $all_day;
-            break;
-          case "= > ":         // Starts at midnight, continues tomorrow
-            $d[$day_num]["data"][] = $all_day . "====&gt;";
-            break;
-          case "< < ":         // Starts before today, ends before midnight
-            $d[$day_num]["data"][] = "&lt;====~" . htmlspecialchars(utf8_strftime(hour_min_format(), $row['end_time']));
-            break;
-          case "< = ":         // Starts before today, ends at midnight
-            $d[$day_num]["data"][] = "&lt;====" . $all_day;
-            break;
-          case "< > ":         // Starts before today, continues tomorrow
-            $d[$day_num]["data"][] = "&lt;====" . $all_day . "====&gt;";
-            break;
-        }
-      }
-      else
-      {
-        $start_str = period_time_string($row['start_time']);
-        $end_str   = period_time_string($row['end_time'], -1);
-        switch (cmp3($row['start_time'], $midnight[$day_num]) . cmp3($row['end_time'], $midnight_tonight[$day_num] + 1))
-        {
-          case "> < ":         // Starts after midnight, ends before midnight
-          case "= < ":         // Starts at midnight, ends before midnight
-            $d[$day_num]["data"][] = $start_str . "~" . $end_str;
-            break;
-          case "> = ":         // Starts after midnight, ends at midnight
-            $d[$day_num]["data"][] = $start_str . "~24:00";
-            break;
-          case "> > ":         // Starts after midnight, continues tomorrow
-            $d[$day_num]["data"][] = $start_str . "~====&gt;";
-            break;
-          case "= = ":         // Starts at midnight, ends at midnight
-            $d[$day_num]["data"][] = $all_day;
-            break;
-          case "= > ":         // Starts at midnight, continues tomorrow
-            $d[$day_num]["data"][] = $all_day . "====&gt;";
-            break;
-          case "< < ":         // Starts before today, ends before midnight
-            $d[$day_num]["data"][] = "&lt;====~" . $end_str;
-            break;
-          case "< = ":         // Starts before today, ends at midnight
-            $d[$day_num]["data"][] = "&lt;====" . $all_day;
-            break;
-          case "< > ":         // Starts before today, continues tomorrow
-            $d[$day_num]["data"][] = "&lt;====" . $all_day . "====&gt;";
-            break;
-        }
-      }
+      $d[$day_num]["data"][] = get_booking_summary($row['start_time'],
+                                                   $row['end_time'],
+                                                   $am7[$day_num],
+                                                   $pm7[$day_num]);
     }
   }
 }
@@ -448,24 +332,6 @@ if ($debug_flag)
     }
   }
   echo "</pre>\n";
-}
-
-// Include the active cell content management routines. 
-// Must be included before the beginnning of the main table.
-if ($javascript_cursor) // If authorized in config.inc.php, include the javascript cursor management.
-{
-  echo "<script type=\"text/javascript\" src=\"xbLib.js\"></script>\n";
-  echo "<script type=\"text/javascript\">\n";
-  echo "//<![CDATA[\n";
-  echo "InitActiveCell("
-    . ($show_plus_link ? "true" : "false") . ", "
-    . "false, "
-    . "false, "
-    . "\"$highlight_method\", "
-    . "\"" . get_vocab("click_to_reserve") . "\""
-    . ");\n";
-  echo "//]]>\n";
-  echo "</script>\n";
 }
 
 echo "<table class=\"dwm_main\" id=\"month_main\">\n";
@@ -535,38 +401,35 @@ for ($cday = 1; $cday <= $days_in_month; $cday++)
     echo "<div class=\"cell_container\">\n";
     
     echo "<div class=\"cell_header\">\n";
-    // first put in the day of the month
-    echo "<a class=\"monthday\" href=\"day.php?year=$year&amp;month=$month&amp;day=$cday&amp;area=$area\">$cday</a>\n";
-    echo "</div>\n";
-    // then the link to make a new booking
-    if ($javascript_cursor)
+    // If it's a Monday (the start of the ISO week), show the week number
+    if ($view_week_number && (($weekcol + $weekstarts)%7 == 1))
     {
-      echo "<script type=\"text/javascript\">\n";
-      echo "//<![CDATA[\n";
-      echo "BeginActiveCell();\n";
-      echo "//]]>\n";
-      echo "</script>\n";
+      echo "<a class=\"week_number\" href=\"week.php?year=$year&amp;month=$month&amp;day=$cday&amp;area=$area&amp;room=$room\">";
+      echo date("W", gmmktime(12, 0, 0, $month, $cday, $year));
+      echo "</a>\n";
     }
+    // then put in the day of the month
+    echo "<a class=\"monthday\" href=\"day.php?year=$year&amp;month=$month&amp;day=$cday&amp;area=$area\">$cday</a>\n";
+
+    echo "</div>\n";
+    
+    // then the link to make a new booking
+    $query_string = "room=$room&amp;area=$area&amp;year=$year&amp;month=$month&amp;day=$cday";
     if ($enable_periods)
     {
-      echo "<a class=\"new_booking\" href=\"edit_entry.php?room=$room&amp;area=$area&amp;period=0&amp;year=$year&amp;month=$month&amp;day=$cday\">\n";
-      echo "<img src=\"new.gif\" alt=\"New\" width=\"10\" height=\"10\">\n";
-      echo "</a>\n";
+      $query_string .= "&amp;period=0";
     }
     else
     {
-      echo "<a class=\"new_booking\" href=\"edit_entry.php?room=$room&amp;area=$area&amp;hour=$morningstarts&amp;minute=0&amp;year=$year&amp;month=$month&amp;day=$cday\">\n";
-      echo "<img src=\"new.gif\" alt=\"New\" width=\"10\" height=\"10\">\n";
-      echo "</a>\n";
+      $query_string .= "&amp;hour=$morningstarts&amp;minute=0";
     }
-    if ($javascript_cursor)
+    
+    echo "<a class=\"new_booking\" href=\"edit_entry.php?$query_string\">\n";
+    if ($show_plus_link)
     {
-      echo "<script type=\"text/javascript\">\n";
-      echo "//<![CDATA[\n";
-      echo "EndActiveCell();\n";
-      echo "//]]>\n";
-      echo "</script>\n";
+      echo "<img src=\"images/new.gif\" alt=\"New\" width=\"10\" height=\"10\">\n";
     }
+    echo "</a>\n";
     
     // then any bookings for the day
     if (isset($d[$cday]["id"][0]))
@@ -578,11 +441,19 @@ for ($cday = 1; $cday <= $days_in_month; $cday++)
       {
         // give the enclosing div the appropriate width: full width if both,
         // otherwise half-width (but use 49.9% to avoid rounding problems in some browsers)
-        $class = $d[$cday]["color"][$i];
-        if ($d[$cday]["is_private"][$i])
+        $class = $d[$cday]["color"][$i]; 
+        if ($d[$cday]["status"][$i] & STATUS_PRIVATE)
         {
           $class .= " private";
         }
+        if ($approval_enabled && ($d[$cday]["status"][$i] & STATUS_AWAITING_APPROVAL))
+        {
+          $class .= " awaiting_approval";
+        }
+        if ($confirmation_enabled && ($d[$cday]["status"][$i] & STATUS_TENTATIVE))
+        {
+          $class .= " tentative";
+        }  
         echo "<div class=\"" . $class . "\"" .
           " style=\"width: " . (($monthly_view_entries_details == "both") ? '100%' : '49.9%') . "\">\n";
         $booking_link = "view_entry.php?id=" . $d[$cday]["id"][$i] . "&amp;day=$cday&amp;month=$month&amp;year=$year";
@@ -593,20 +464,17 @@ for ($cday = 1; $cday <= $days_in_month; $cday++)
         {
           case "description":
           {
-            echo "<a href=\"$booking_link\" title=\"$full_text\">"
-              . $description_text . "</a>\n";
+            $display_text = $description_text;
             break;
           }
           case "slot":
           {
-            echo "<a href=\"$booking_link\" title=\"$full_text\">"
-              . $slot_text . "</a>\n";
+            $display_text = $slot_text;
             break;
           }
           case "both":
           {
-            echo "<a href=\"$booking_link\" title=\"$full_text\">"
-              . $full_text . "</a>\n";
+            $display_text = $full_text;
             break;
           }
           default:
@@ -614,6 +482,9 @@ for ($cday = 1; $cday <= $days_in_month; $cday++)
             echo "error: unknown parameter";
           }
         }
+        echo "<a href=\"$booking_link\" title=\"$full_text\">";
+        echo ($d[$cday]['is_repeat'][$i]) ? "<img class=\"repeat_symbol\" src=\"images/repeat.png\" alt=\"" . get_vocab("series") . "\" title=\"" . get_vocab("series") . "\" width=\"10\" height=\"10\">" : '';
+        echo "$display_text</a>\n";
         echo "</div>\n";
       }
       echo "</div>\n";
@@ -651,5 +522,11 @@ echo "</tr></tbody></table>\n";
 print $before_after_links_html;
 show_colour_key();
 
-require_once "trailer.inc";
-?>
+// Draw the three month calendars
+if ($display_calendar_bottom)
+{
+  minicals($year, $month, $day, $area, $room, 'month');
+}
+
+output_trailer();
+

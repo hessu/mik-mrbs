@@ -1,35 +1,15 @@
 <?php
-// $Id: del.php 1157 2009-07-16 15:56:07Z jberanek $
+// $Id$
 
-require_once "defaultincludes.inc";
+require "defaultincludes.inc";
 
-// Get form variables
-$day = get_form_var('day', 'int');
-$month = get_form_var('month', 'int');
-$year = get_form_var('year', 'int');
-$area = get_form_var('area', 'int');
-$room = get_form_var('room', 'int');
+// Get non-standard form variables
 $type = get_form_var('type', 'string');
 $confirm = get_form_var('confirm', 'string');
 
-// If we dont know the right date then make it up
-if (!isset($day) or !isset($month) or !isset($year))
-{
-  $day   = date("d");
-  $month = date("m");
-  $year  = date("Y");
-}
-if (empty($area))
-{
-  $area = get_default_area();
-}
 
-$required_level = (isset($max_level) ? $max_level : 2);
-if (!getAuthorised($required_level))
-{
-  showAccessDenied($day, $month, $year, $area, "");
-  exit();
-}
+// Check the user is authorised for this page
+checkAuthorised();
 
 // This is gonna blast away something. We want them to be really
 // really sure that this is what they want to do.
@@ -50,20 +30,21 @@ if ($type == "room")
     sql_commit();
    
     // Go back to the admin page
-    Header("Location: admin.php");
+    Header("Location: admin.php?area=$area");
   }
   else
   {
     print_header($day, $month, $year, $area, isset($room) ? $room : "");
    
-    // We tell them how bad what theyre about to do is
+    // We tell them how bad what they're about to do is
     // Find out how many appointments would be deleted
    
     $sql = "select name, start_time, end_time from $tbl_entry where room_id=$room";
     $res = sql_query($sql);
     if (! $res)
     {
-      echo sql_error();
+      trigger_error(sql_error(), E_USER_WARNING);
+      fatal_error(FALSE, get_vocab("fatal_db_error"));
     }
     else if (sql_count($res) > 0)
     {
@@ -86,11 +67,11 @@ if ($type == "room")
     echo "<div id=\"del_room_confirm\">\n";
     echo "<p>" .  get_vocab("sure") . "</p>\n";
     echo "<div id=\"del_room_confirm_links\">\n";
-    echo "<a href=\"del.php?type=room&amp;room=$room&amp;confirm=Y\"><span id=\"del_yes\">" . get_vocab("YES") . "!</span></a>\n";
+    echo "<a href=\"del.php?type=room&amp;area=$area&amp;room=$room&amp;confirm=Y\"><span id=\"del_yes\">" . get_vocab("YES") . "!</span></a>\n";
     echo "<a href=\"admin.php\"><span id=\"del_no\">" . get_vocab("NO") . "!</span></a>\n";
     echo "</div>\n";
     echo "</div>\n";
-    require_once "trailer.inc";
+    output_trailer();
   }
 }
 
@@ -115,8 +96,7 @@ if ($type == "area")
     echo get_vocab("delarea");
     echo "<a href=\"admin.php\">" . get_vocab("backadmin") . "</a>";
     echo "</p>\n";
-    require_once "trailer.inc";
+    output_trailer();
   }
 }
 
-?>

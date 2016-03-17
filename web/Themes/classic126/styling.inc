@@ -1,6 +1,6 @@
 <?php
 
-// $Id: styling.inc 1127 2009-06-23 14:35:08Z cimorrison $
+// $Id$
 
 // CLASSIC MRBS 1.2.6 THEME
 
@@ -22,6 +22,7 @@ $header_back_color              = "#999999";  // background colour for headers
 $admin_table_header_back_color  = $header_back_color;     // background colour for header and also border colour for table cells
 $admin_table_header_sep_color   = $body_background_color; // vertical separator colour in header
 $admin_table_header_font_color  = $header_font_color;     // font colour for header
+$admin_table_border_color       = "#C3CCD3";
 
 $main_table_border_color        = "#777777";                   // border colour for day/week/month tables - outside
 $main_table_header_border_color = $main_table_border_color;    // border colour for day/week/month tables - header
@@ -29,6 +30,7 @@ $main_table_body_h_border_color = $main_table_border_color;    // border colour 
 $main_table_body_v_border_color = $main_table_body_h_border_color; // border colour for day/week/month tables - body, vertical
 $main_table_month_color         = "#ffffff";    // background colour for days in the month view
 $main_table_month_invalid_color = "#d1d9de";    // background colour for invalid days in the month view
+$main_table_slot_invalid_color  = "#d1d9de";    // background colour for invalid slots in the day and week views
 $main_table_labels_back_color   = "#fff0f0";    // background colour for the row labels column
 
 // border colours for the main table when it is printed.     These are used by mrbs-print.css.php
@@ -40,11 +42,10 @@ $main_table_body_v_border_color_print = "#777777";    // border colour for day/w
 $report_table_border_color      = $standard_font_color;
 $report_h2_border_color         = $banner_back_color;     // border colour for <h2> in report.php
 $report_h3_border_color         = "#879AA8";              // border colour for <h2> in report.php
-$report_entry_border_color      = "#C3CCD3";              // used to separate individual bookings in report.php
 
 $search_table_border_color      = $standard_font_color;
 
-$site_faq_entry_border_color    = $report_entry_border_color;    // used to separate individual FAQ's in help.php
+$site_faq_entry_border_color    = "#C3CCD3";          // used to separate individual FAQ's in help.php
 
 $trailer_border_color           = $main_table_border_color;
 
@@ -65,8 +66,6 @@ $calendar_hidden_color          = "#dae0e4";                          // hidden 
 $row_even_color                 = "#ffffff";        // even rows in the day and week views
 $row_odd_color                  = "#eeeeee";        // even rows in the day and week views
 $row_highlight_color            = "#ffc0da";        // used for highlighting a row
-                                                    // NOTE: this colour is also used in xbLib.js (in more than one place)and 
-                                                    // if you change it here you will also need to change it there.
 
 $help_highlight_color           = "#ffe6f0";        // highlighting text on the help page
 
@@ -87,6 +86,11 @@ $color_types = array(
     'I' => "#DDFFDD",
     'J' => "#CCCCCC");
      
+// colours used for pending.php and bookings awaiting approval
+$outstanding_color         = "#FF4444"; // font colour for the outstanding reservations message in the header
+$pending_header_back_color = $header_back_color; // background colour for series headers
+$series_entry_back_color   = "#FFFBC2"; // background colour for entries in a series
+$pending_control_color     = "#FFF36C"; // background colour for the series +/- controls in pending.php
 
 // ***** DIMENSIONS *******************
 $banner_border_width          = '1';  // (px)  border width for the outside of the banner
@@ -97,6 +101,5 @@ $main_cell_height             = '17'; // (px)  height of the cells in the main d
     
     
 // ***** FONTS ************************    
-$standard_font_family  = 'Arial, Verdana, sans-serif';
+$standard_font_family  = "Arial, 'Arial Unicode MS', Verdana, sans-serif";
 
-?>

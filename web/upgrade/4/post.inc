@@ -1,6 +1,6 @@
 <?php
 
-// $Id: post.inc 1129 2009-06-24 15:47:32Z cimorrison $
+// $Id$
 
 // Populate the new columns in the area table with the default values taken
 // from the config file.
@@ -26,4 +26,3 @@ if ($res == -1)
   print "<span class=\"error\">Failed to set default values for new columns in area table.</span>";
 }
 
-?>

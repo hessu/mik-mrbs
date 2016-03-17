@@ -21,7 +21,7 @@
 *                          example by having booking admins, user admins     *
 *                          snd system admins.  (System admins might be       *
 *                          necessary in the future if, for example, some     *
-*                          parameters curreently in the config file are      *
+*                          parameters currently in the config file are      *
 *                          made editable from MRBS)                          *
 *                                                                            *
 *                 Only admins with at least user editing rights (level >=    *
@@ -36,15 +36,11 @@
 *                                                                            *
 \*****************************************************************************/
 
-// $Id: edit_users.php 1264 2009-11-13 21:09:48Z cimorrison $
+// $Id$
 
-require_once "defaultincludes.inc";
+require "defaultincludes.inc";
 
-// Get form variables
-$day = get_form_var('day', 'int');
-$month = get_form_var('month', 'int');
-$year = get_form_var('year', 'int');
-$area = get_form_var('area', 'int');
+// Get non-standard form variables
 $Action = get_form_var('Action', 'string');
 $Id = get_form_var('Id', 'int');
 $password0 = get_form_var('password0', 'string');
@@ -54,50 +50,191 @@ $name_empty = get_form_var('name_empty', 'int');
 $name_not_unique = get_form_var('name_not_unique', 'int');
 $taken_name = get_form_var('taken_name', 'string');
 $pwd_not_match = get_form_var('pwd_not_match', 'string');
+$pwd_invalid = get_form_var('pwd_invalid', 'string');
+$ajax = get_form_var('ajax', 'int');  // Set if this is an Ajax request
+$datatable = get_form_var('datatable', 'int');  // Will only be set if we're using DataTables
 
-$fields = array();
-$field_props = array();
 
-/* Get the list of fields actually in the table. (Allows the addition of new fields later on) */
-function get_fields()
+// Validates that the password conforms to the password policy
+// (Ideally this function should also be matched by client-side
+// validation, but unfortunately JavaScript's native support for Unicode
+// pattern matching is very limited.   Would need to be implemented using
+// an add-in library).
+function validate_password($password)
 {
-  global $tbl_users;
-  global $fields, $field_props;
-  array_splice($fields, 0);        // clear out any existing field names
-  array_splice($field_props, 0);   // and properties
-  $result = sql_query("select * from $tbl_users limit 1");
-  $nfields = sql_num_fields($result);
-  for ($i=0; $i<$nfields ;$i++)
+  global $pwd_policy;
+          
+  if (isset($pwd_policy))
   {
-    $field_name = sql_field_name($result, $i);
-    $fields[] = $field_name;
-    $field_props[$field_name]['type'] = sql_field_type($result, $i);
-    $field_props[$field_name]['istext'] = ($field_props[$field_name]['type'] == 'string') ? true : false;
-    $field_props[$field_name]['isnum'] = preg_match('/(int|real)/',$field_props[$field_name]['type']) ? true : false;
-    $field_props[$field_name]['isbool'] = ($field_props[$field_name]['type'] == 'boolean') ? true : false;
+    // Set up regular expressions.  Use p{Ll} instead of [a-z] etc.
+    // to make sure accented characters are included
+    $pattern = array('alpha'   => '/\p{L}/',
+                     'lower'   => '/\p{Ll}/',
+                     'upper'   => '/\p{Lu}/',
+                     'numeric' => '/\p{N}/',
+                     'special' => '/[^\p{L}|\p{N}]/');
+    // Check for conformance to each rule                 
+    foreach($pwd_policy as $rule => $value)
+    {
+      switch($rule)
+      {
+        case 'length':
+          if (utf8_strlen($password) < $pwd_policy[$rule])
+          {
+            return FALSE;
+          }
+          break;
+        default:
+          // turn on Unicode matching
+          $pattern[$rule] .= 'u';
+
+          $n = preg_match_all($pattern[$rule], $password, $matches);
+          if (($n === FALSE) || ($n < $pwd_policy[$rule]))
+          {
+            return FALSE;
+          }
+          break;
+      }
+    }
   }
-  sql_free($result);
+  
+  // Everything is OK
+  return TRUE;
 }
 
 
-$nusers = sql_query1("select count(*) from $tbl_users");
-
-// Get the list of fields in the table
-get_fields();
-
-/* Get localized field name */
-function get_loc_field_name($name)
+// Get the type that should be used with get_form_var() for
+// a field which is a member of the array returned by get_field_info()
+function get_form_var_type($field)
 {
-  global $vocab;
-
-  // Search for indexes "user_name", "user_password", etc, in the localization array.
-  if (isset($vocab["user_".$name]))
+  // "Level" is an exception because we've forced the value to be a string
+  // so that it can be used in an associative aeeay
+  if ($field['name'] == 'level')
   {
-    return get_vocab("user_".$name);
+    return 'string';
   }
-  // If there is no entry (likely if user-defined fields have been added), return itself.
-  return $name;
+  switch($field['nature'])
+  {
+    case 'character':
+      $type = 'string';
+      break;
+    case 'integer':
+      $type = 'int';
+      break;
+    // We can only really deal with the types above at the moment
+    default:
+      $type = 'string';
+      break;
+  }
+  return $type;
 }
+
+
+function output_row(&$row)
+{
+  global $ajax, $json_data;
+  global $level, $min_user_editing_level, $user;
+  global $fields, $ignore_columns, $select_options;
+  
+  $values = array();
+  
+  // First column, which is the name
+  $html_name = htmlspecialchars($row['name']);
+  // You can only edit a user if you have sufficient admin rights, or else if that user is yourself
+  if (($level >= $min_user_editing_level) || (strcasecmp($row['name'], $user) == 0))
+  {
+    $link = htmlspecialchars(this_page()) . "?Action=Edit&amp;Id=" . $row['id'];
+    $values[] = "<a title=\"$html_name\" href=\"$link\">$html_name</a>";
+  }
+  else
+  {
+    $values[] = "<span class=\"normal\" title=\"$html_name\">$html_name</span>";
+  }
+    
+  // Other columns
+  foreach ($fields as $field)
+  {
+    $key = $field['name'];
+    if (!in_array($key, $ignore_columns))
+    {
+      $col_value = $row[$key];
+      switch($key)
+      {
+        // special treatment for some fields
+        case 'level':
+          // the level field contains a code and we want to display a string
+          // (but we put the code in a span for sorting)
+          $values[] = "<span title=\"$col_value\"></span>" .
+                      "<div class=\"string\">" . get_vocab("level_$col_value") . "</div>";
+          break;
+        case 'email':
+          // we don't want to truncate the email address
+          $values[] = "<div class=\"string\">" . htmlspecialchars($col_value) . "</div>";
+          break;
+        default:
+          // Where there's an associative array of options, display
+          // the value rather than the key
+          if (isset($select_options["users.$key"]) &&
+              is_assoc($select_options["users.$key"]))
+          {
+            if (isset($select_options["users.$key"][$row[$key]]))
+            {
+              $col_value = $select_options["users.$key"][$row[$key]];
+            }
+            else
+            {
+              $col_value = '';
+            }
+            $values[] = "<div class=\"string\">" . htmlspecialchars($col_value) . "</div>";
+          }
+          elseif (($field['nature'] == 'boolean') || 
+              (($field['nature'] == 'integer') && isset($field['length']) && ($field['length'] <= 2)) )
+          {
+            // booleans: represent by a checkmark
+            $values[] = (!empty($col_value)) ? "<img src=\"images/check.png\" alt=\"check mark\" width=\"16\" height=\"16\">" : "&nbsp;";
+          }
+          elseif (($field['nature'] == 'integer') && isset($field['length']) && ($field['length'] > 2))
+          {
+            // integer values
+            $values[] = $col_value;
+          }
+          else
+          {
+             // strings
+            $values[] = "<div class=\"string\" title=\"" . htmlspecialchars($col_value) . "\">" .
+                        htmlspecialchars($col_value) . "</div>";
+          }
+          break;
+      }  // end switch
+    }
+  }  // end foreach
+
+  if ($ajax)
+  {
+    $json_data['aaData'][] = $values;
+  }
+  else
+  {
+    echo "<tr>\n<td>\n";
+    echo implode("</td>\n<td>", $values);
+    echo "</td>\n</tr>\n";
+  }
+}
+
+// Set up for Ajax.   We need to know whether we're capable of dealing with Ajax
+// requests, which will only be if (a) the browser is using DataTables and (b)
+// we can do JSON encoding.    We also need to initialise the JSON data array.
+$ajax_capable = $datatable && function_exists('json_encode');
+
+if ($ajax)
+{
+  $json_data['aaData'] = array();
+}
+
+// Get the information about the fields in the users table
+$fields = sql_field_info($tbl_users);
+
+$nusers = sql_query1("SELECT COUNT(*) FROM $tbl_users");
 
 /*---------------------------------------------------------------------------*\
 |                         Authenticate the current user                         |
@@ -109,12 +246,8 @@ if ($nusers > 0)
 {
   $user = getUserName();
   $level = authGetUserLevel($user);
-  // Do not allow unidentified people to browse the list.
-  if(!getAuthorised(1))
-  {
-    showAccessDenied($day, $month, $year, $area, "");
-    exit;
-  }
+  // Check the user is authorised for this page
+  checkAuthorised();
 }
 else 
 // We've just created the table.   Assume the person doing this IS an administrator
@@ -130,6 +263,7 @@ else
   $level = $max_level;
   $user = "";           // to avoid an undefined variable notice
 }
+
 
 /*---------------------------------------------------------------------------*\
 |             Edit a given entry - 1st phase: Get the user input.             |
@@ -152,15 +286,16 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
     // query string if there was an error on validating the data after it
     // had been submitted.   We want to preserve the user's original values
     // so that they don't have to re-type them).
-    foreach ($fields as $fieldname)
+    foreach ($fields as $field)
     {
-      $value = get_form_var($fieldname, $field_props[$fieldname]['type']);
-      $data[$fieldname] = (isset($value)) ? $value : "";
+      $type = get_form_var_type($field);
+      $value = get_form_var($field['name'], $type);
+      $data[$field['name']] = (isset($value)) ? $value : "";
     }
   }
 
   /* First make sure the user is authorized */
-  if (!$initial_user_creation && !getWritable($data['name'], $user))
+  if (!$initial_user_creation && !auth_can_edit_user($user, $data['name']))
   {
     showAccessDenied(0, 0, 0, "", "");
     exit();
@@ -175,7 +310,7 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
   }
   
   print "<div id=\"form_container\">";
-  print "<form id=\"form_edit_users\" method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)). "\">\n";
+  print "<form id=\"form_edit_users\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
     ?>
         <fieldset class="admin">
         <legend><?php echo (($Action == "Edit") ? get_vocab("edit_user") : get_vocab("add_new_user"));?></legend>
@@ -193,98 +328,102 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
             $editing_last_admin = FALSE;
           }
           
-          // Work out whether the level select input should be disabled (NB you can't make a <select> readonly)
-          // We don't want the user to be able to change the level if (a) it's the first user being created or
-          // (b) it's the last admin left or (c) they don't have admin rights
-          $disable_select = ($initial_user_creation || $editing_last_admin || ($level < $min_user_editing_level));
-          
-          foreach ($fields as $fieldname)
+          foreach ($fields as $field)
           {
+            $key = $field['name'];
+            $params = array('label' => get_loc_field_name($tbl_users, $key) . ':',
+                            'name'  => VAR_PREFIX . $key,
+                            'value' => $data[$key]);
+            if (isset($maxlength["users.$key"]))
+            {
+              $params['maxlength'] = $maxlength["users.$key"];
+            }
             // First of all output the input for the field
             // The ID field cannot change; The password field must not be shown.
-            switch($fieldname)
+            switch($key)
             {
               case 'id':
                 echo "<input type=\"hidden\" name=\"Id\" value=\"$Id\">\n";
                 break;
-              case 'password':
-                echo "<input type=\"hidden\" name=\"Field_$fieldname\" value=\"". htmlspecialchars($data[$fieldname]) . "\">\n";
-                break;
-              case 'level':
-                echo "<div>\n";
-                echo "<label for=\"Field_$fieldname\">" . get_loc_field_name($fieldname) . ":</label>\n";
-                echo "<select id=\"Field_$fieldname\" name=\"Field_$fieldname\"" . ($disable_select ? " disabled=\"disabled\"" : "") . ">\n";
-                // Only display options up to and including one's own level (you can't upgrade yourself).
-                // If you're not some kind of admin then the select will also be disabled.
-                // (Note - disabling individual options doesn't work in older browsers, eg IE6)     
-                for ($i=0; $i<=$level; $i++)
-                {
-                  echo "<option value=\"$i\"";
-                  // Work out which option should be selected by default:
-                  //   if we're editing an existing entry, then it should be the current value;
-                  //   if we're adding the very first entry, then it should be an admin;
-                  //   if we're adding a subsequent entry, then it should be an ordinary user;
-                  if ( (($Action == "Edit")  && ($i == $data[$fieldname])) ||
-                       (($Action == "Add") && $initial_user_creation && ($i == $max_level)) ||
-                       (($Action == "Add") && !$initial_user_creation && ($i == 1)) )
-                  {
-                    echo " selected=\"selected\"";
-                  }
-                  echo ">" . get_vocab("level_$i") . "</option>\n";
-                }
-                echo "</select>\n";
-                // If the level select input was disabled, we still need to submit a value with 
-                // the form.   <select> can't be set to 'readonly' so instead we'll use a hidden input
-                if ($disable_select)
-                {
-                  if ($initial_user_creation)
-                  {
-                    $v = $max_level;
-                  }
-                  else
-                  {
-                    $v = $data[$fieldname];
-                  }
-                  echo "<input type=\"hidden\" name=\"Field_$fieldname\" value=\"$v\">\n";
-                }
-                echo "</div>\n";
-                break;
-              case 'name':
-                // you cannot change a username (even your own) unless you have user editing rights
-                $html_fieldname = htmlspecialchars("Field_$fieldname");
-                echo ("<div>\n");
-                echo ("<label for=\"$html_fieldname\">" . get_loc_field_name($fieldname) . ":</label>\n");
-                echo ("<input id=\"$html_fieldname\" name=\"$html_fieldname\" type=\"text\" " .
-                      "maxlength=\"" . $maxlength['users.name'] . "\" " .
-                     (($level < $min_user_editing_level) ? "disabled=\"disabled\" " : "") .
-                      "value=\"" . htmlspecialchars($data[$fieldname]) . "\">\n");
-                // if the field was disabled then we still need to pass through the value as a hidden input
-                if ($level < $min_user_editing_level)
-                {
-                  echo "<input type=\"hidden\" name=\"Field_$fieldname\" value=\"" . $data[$fieldname] . "\">\n";
-                }
-                echo ("</div>\n");
+              case 'password_hash':
+                echo "<input type=\"hidden\" name=\"" . $params['name'] ."\" value=\"". htmlspecialchars($params['value']) . "\">\n";
                 break;
               default:
-                $html_fieldname = htmlspecialchars("Field_$fieldname");
-                echo ("<div>\n");
-                echo ("<label for=\"$html_fieldname\">" . get_loc_field_name($fieldname) . ":</label>\n");
-                echo ("<input id=\"$html_fieldname\" name=\"$html_fieldname\" type=\"text\" " .
-                     (isset($maxlength["users.$fieldname"]) ? "maxlength=\"" . $maxlength["users.$fieldname"] . "\" " : "") .
-                      "value=\"" . htmlspecialchars($data[$fieldname]) . "\">\n");
-                echo ("</div>\n");
-                break;
+                echo "<div>\n";
+                switch($key)
+                {
+                  case 'level':
+                    // Work out whether the level select input should be disabled (NB you can't make a <select> readonly)
+                    // We don't want the user to be able to change the level if (a) it's the first user being created or
+                    // (b) it's the last admin left or (c) they don't have admin rights
+                    $params['disabled'] = $initial_user_creation || $editing_last_admin || ($level < $min_user_editing_level);
+                    // Only display options up to and including one's own level (you can't upgrade yourself).
+                    // If you're not some kind of admin then the select will also be disabled.
+                    // (Note - disabling individual options doesn't work in older browsers, eg IE6)
+                    $params['options'] = array();     
+                    for ($i=0; $i<=$level; $i++)
+                    {
+                      $params['options'][$i] = get_vocab("level_$i");
+                      // Work out which option should be selected by default:
+                      //   if we're editing an existing entry, then it should be the current value;
+                      //   if we're adding the very first entry, then it should be an admin;
+                      //   if we're adding a subsequent entry, then it should be an ordinary user;
+                      if ( (($Action == "Edit")  && ($i == $data[$key])) ||
+                           (($Action == "Add") && $initial_user_creation && ($i == $max_level)) ||
+                           (($Action == "Add") && !$initial_user_creation && ($i == 1)) )
+                      {
+                        $params['value'] = $i;
+                      }
+                    }
+                    $params['force_assoc'] = TRUE;
+                    generate_select($params);
+                    break;
+                  case 'name':
+                    // you cannot change a username (even your own) unless you have user editing rights
+                    $params['disabled'] = ($level < $min_user_editing_level);
+                    $params['mandatory'] = TRUE;
+                    generate_input($params);
+                    break;
+                  case 'email':
+                    $params['type'] = 'email';
+                    $params['attributes'] = 'multiple';
+                    generate_input($params);
+                    break;
+                  default:    
+                    // Output a checkbox if it's a boolean or integer <= 2 bytes (which we will
+                    // assume are intended to be booleans)
+                    if (($field['nature'] == 'boolean') || 
+                        (($field['nature'] == 'integer') && isset($field['length']) && ($field['length'] <= 2)) )
+                    {
+                      generate_checkbox($params);
+                    }
+                    // Output a textarea if it's a character string longer than the limit for a
+                    // text input
+                    elseif (($field['nature'] == 'character') && isset($field['length']) && ($field['length'] > $text_input_max))
+                    {
+                      $params['attributes'] = array('rows="8"', 'cols="40"');
+                      generate_textarea($params);   
+                    }
+                    // Otherwise output a text input
+                    else
+                    {
+                      $params['field'] = "users.$key";
+                      generate_input($params);
+                    }
+                    break;
+                } // end switch
+                echo "</div>\n";
             } // end switch
             
             
             // Then output any error messages associated with the field
             // except for the password field which is a special case
-            switch($fieldname)
+            switch($key)
             {
               case 'email':
                 if (!empty($invalid_email))
                 {
-                  echo "<p class=\"error\">" . get_vocab('invalid_email') . "<p>\n";
+                  echo "<p class=\"error\">" . get_vocab('invalid_email') . "</p>\n";
                 }
                 break;
               case 'name':
@@ -306,7 +445,7 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
           for ($i=0; $i<2; $i++)
           {
             print "<div>\n";
-            print "<label for=\"password$i\">" . get_vocab("user_password") . ":</label>\n";
+            print "<label for=\"password$i\">" . get_vocab("users.password") . ":</label>\n";
             print "<input type=\"password\" id=\"password$i\" name=\"password$i\" value=\"\">\n";
             print "</div>\n";
           }
@@ -316,14 +455,27 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
           {
             echo "<p class=\"error\">" . get_vocab("passwords_not_eq") . "</p>\n";
           }
+          if (!empty($pwd_invalid))
+          {
+            echo "<p class=\"error\">" . get_vocab("password_invalid") . "</p>\n";
+            if (isset($pwd_policy))
+            {
+              echo "<ul class=\"error\">\n";
+              foreach ($pwd_policy as $rule => $value)
+              {
+                echo "<li>$value " . get_vocab("policy_" . $rule) . "</li>\n";
+              }
+              echo "</ul>\n";
+            }
+          }
           
           if ($editing_last_admin)
           {
-            echo "<br><em>(" . get_vocab("warning_last_admin") . ")</em>\n";
+            echo "<p><em>(" . get_vocab("warning_last_admin") . ")</em></p>\n";
           }
           ?>
           <input type="hidden" name="Action" value="Update">    
-          <input class="submit" type="submit" value="<?php echo(get_vocab("save")); ?>">
+          <input class="submit default_action" type="submit" value="<?php echo(get_vocab("save")); ?>">
           
         </div>
         </fieldset>
@@ -332,7 +484,7 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
       /* Administrators get the right to delete users, but only those at the same level as them or lower */
       if (($Id >= 0) && ($level >= $min_user_editing_level) && ($level >= $data['level'])) 
       {
-        echo "<form id=\"form_delete_users\" method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)) . "\">\n";
+        echo "<form id=\"form_delete_users\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
         echo "<div>\n";
         echo "<input type=\"hidden\" name=\"Action\" value=\"Delete\">\n";
         echo "<input type=\"hidden\" name=\"Id\" value=\"$Id\">\n";
@@ -342,12 +494,23 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
         echo "</div>\n";
         echo "</form>\n";
       }
+      // otherwise (ie when adding, or else editing when not an admin) give them a cancel button
+      // which takes them back to the user list and does nothing
+      else
+      {
+        echo "<form id=\"form_delete_users\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
+        echo "<div>\n";
+        echo "<input class=\"submit\" type=\"submit\" value=\"" . get_vocab("back") . "\">\n";
+        echo "</div>\n";
+        echo "</form>\n";
+      }
 ?>
       </div>
 <?php
 
   // Print footer and exit
-  print_footer(TRUE);
+  output_trailer();
+  exit;
 }
 
 /*---------------------------------------------------------------------------*\
@@ -357,7 +520,7 @@ if (isset($Action) && ( ($Action == "Edit") or ($Action == "Add") ))
 if (isset($Action) && ($Action == "Update"))
 {
   // If you haven't got the rights to do this, then exit
-  $my_id = sql_query1("SELECT id FROM $tbl_users WHERE name='".addslashes($user)."' LIMIT 1");
+  $my_id = sql_query1("SELECT id FROM $tbl_users WHERE name='".sql_escape($user)."' LIMIT 1");
   if (($level < $min_user_editing_level) && ($Id != $my_id ))
   {
     Header("Location: edit_users.php");
@@ -369,8 +532,10 @@ if (isset($Action) && ($Action == "Update"))
   {
     $values = array();
     $q_string = ($Id >= 0) ? "Action=Edit" : "Action=Add";
-    foreach ($fields as $fieldname)
+    foreach ($fields as $field)
     {
+      $fieldname = $field['name'];
+      $type = get_form_var_type($field);
       if ($fieldname == 'id')
       {
         // id: don't need to do anything except add the id to the query string;
@@ -378,13 +543,14 @@ if (isset($Action) && ($Action == "Update"))
         $q_string .= "&Id=$Id";
         continue; 
       }
+
       // first, get all the other form variables and put them into an array, $values, which 
       // we will use for entering into the database assuming we pass validation
-      $values[$fieldname] = get_form_var("Field_$fieldname", $field_props[$fieldname]['type']);
+      $values[$fieldname] = get_form_var(VAR_PREFIX. $fieldname, $type);
       // Truncate the field to the maximum length as a precaution.
       if (isset($maxlength["users.$fieldname"]))
       {
-        $values[$fieldname] = substr($values[$fieldname], 0, $maxlength["users.$fieldname"]);
+        $values[$fieldname] = utf8_substr($values[$fieldname], 0, $maxlength["users.$fieldname"]);
       }
       // we will also put the data into a query string which we will use for passing
       // back to this page if we fail validation.   This will enable us to reload the
@@ -398,17 +564,25 @@ if (isset($Action) && ($Action == "Update"))
         case 'name':
           // name: convert it to lower case
           $q_string .= "&$fieldname=" . urlencode($values[$fieldname]);
-          $values[$fieldname] = strtolower($values[$fieldname]);
+          $values[$fieldname] = utf8_strtolower($values[$fieldname]);
           break;
-        case 'password':
+        case 'password_hash':
           // password: if the password field is blank it means
           // that the user doesn't want to change the password
-          // so don't do anything; otherwise get the MD5 hash.
+          // so don't do anything; otherwise calculate the hash.
           // Note: we don't put the password in the query string
           // for security reasons.
-          if ($password0 != "")
+          if (!empty($password0))
           {
-            $values[$fieldname]=md5($password0);
+            if (PasswordCompat\binary\check())
+            {
+              $hash = password_hash($password0, PASSWORD_DEFAULT);
+            }
+            else
+            {
+              $hash = md5($password0);
+            }
+            $values[$fieldname] = $hash;
           }
           break;
         case 'level':
@@ -450,7 +624,7 @@ if (isset($Action) && ($Action == "Update"))
           // If it's a new user, then to check to see if there are any rows with that name.
           // If it's an update, then check to see if there are any rows with that name, except
           // for that user.
-          $query = "SELECT id FROM $tbl_users WHERE name='" . addslashes($value) . "'";
+          $query = "SELECT id FROM $tbl_users WHERE name='" . sql_escape($value) . "'";
           if ($Id >= 0)
           {
             $query .= " AND id!='$Id'";
@@ -471,10 +645,21 @@ if (isset($Action) && ($Action == "Update"))
             $valid_data = FALSE;
             $q_string .= "&pwd_not_match=1";
           }
+          // check that the password conforms to the password policy
+          // if it's a new user (Id < 0), or else it's an existing user
+          // trying to change their password
+          if (($Id <0) || !empty($password0))
+          {
+            if (!validate_password($password0))
+            {
+              $valid_data = FALSE;
+              $q_string .= "&pwd_invalid=1";
+            }
+          }
           break;
         case 'email':
           // check that the email address is valid
-          if (!empty($value) && !validate_email_list($value))
+          if (isset($value) && ($value !== '') && !validate_email_list($value))
           {
             $valid_data = FALSE;
             $q_string .= "&invalid_email=1";
@@ -499,44 +684,33 @@ if (isset($Action) && ($Action == "Update"))
     $sql_fields = array();
   
     // For each db column get the value ready for the database
-    foreach ($values as $fieldname => $value)
+    foreach ($fields as $field)
     {
-      // pre-process the field value for SQL
-      if ($field_props[$fieldname]['istext'])
+      $fieldname = $field['name'];
+      if ($fieldname != 'id')
       {
-        $value = "'" . addslashes($value) . "'";
-      }
-      else if ($field_props[$fieldname]['isbool'])
-      {
-        if ($value && $value == true)
+        // pre-process the field value for SQL
+        $value = $values[$fieldname];
+        switch ($field['nature'])
         {
-          $value = "TRUE";
+          case 'integer':
+            if (!isset($value) || ($value === ''))
+            {
+              // Try and set it to NULL when we can because there will be cases when we
+              // want to distinguish between NULL and 0 - especially when the field
+              // is a genuine integer.
+              $value = ($field['is_nullable']) ? 'NULL' : 0;
+            }
+            break;
+          default:
+            $value = "'" . sql_escape($value) . "'";
+            break;
         }
-        else
-        {
-          $value = "FALSE";
-        }
-      }
-      else
-      {
-        // put in a sensible default for a missing field
-        if (($value == null) || ($value == ''))
-        {
-          if ($field_props[$fieldname]['isnum'])
-          {
-           $value = "0";
-          }
-          else
-          {
-            $value = "NULL";
-          }
-        }
-      }
-      
-      /* If we got here, we have a valid, sql-ified value for this field,
-       * so save it for later */
-      $sql_fields[$fieldname] = $value;
-                           
+       
+        /* If we got here, we have a valid, sql-ified value for this field,
+         * so save it for later */
+        $sql_fields[$fieldname] = $value;
+      }                   
     } /* end for each column of user database */
   
     /* Now generate the SQL operation based on the given array of fields */
@@ -550,7 +724,7 @@ if (isset($Action) && ($Action == "Update"))
   
       foreach ($sql_fields as $fieldname => $value)
       {
-        array_push($assign_array,"$fieldname=$value");
+        array_push($assign_array, sql_quote($fieldname) . "=$value");
       }
       $operation .= implode(",", $assign_array) . " WHERE id=$Id;";
     }
@@ -566,28 +740,30 @@ if (isset($Action) && ($Action == "Update"))
         array_push($fields_list,$fieldname);
         array_push($values_list,$value);
       }
-      
+
+      $fields_list = array_map('sql_quote', $fields_list);
       $operation = "INSERT INTO $tbl_users " .
-        "(". implode(",",$fields_list) . ")" .
-        " VALUES " . "(" . implode(",",$values_list) . ");";
+        "(". implode(",", $fields_list) . ")" .
+        " VALUES " . "(" . implode(",", $values_list) . ");";
     }
   
     /* DEBUG lines - check the actual sql statement going into the db */
-    //echo "Final SQL string: <code>$operation</code>";
+    //echo "Final SQL string: <code>" . htmlspecialchars($operation) . "</code>";
     //exit;
-  
     $r = sql_command($operation);
     if ($r == -1)
     {
+      // Get the error message before the print_header() call because the print_header()
+      // function can contain SQL queries and so reset the error message.
+      trigger_error(sql_error(), E_USER_WARNING);
       print_header(0, 0, 0, "", "");
   
       // This is unlikely to happen in normal operation. Do not translate.
        
-      print "<form class=\"edit_users_error\" method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)) . "\">\n";
+      print "<form class=\"edit_users_error\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
       print "  <fieldset>\n";
       print "  <legend></legend>\n";
       print "    <p class=\"error\">Error updating the $tbl_users table.</p>\n";
-      print "    <p class=\"error\">" . sql_error() . "</p>\n";
       print "    <input type=\"submit\" value=\" " . get_vocab("ok") . " \">\n";
       print "  </fieldset>\n";
       print "</form>\n";
@@ -627,7 +803,7 @@ if (isset($Action) && ($Action == "Delete"))
 
     // This is unlikely to happen in normal  operation. Do not translate.
     
-    print "<form class=\"edit_users_error\" method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)) . "\">\n";
+    print "<form class=\"edit_users_error\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
     print "  <fieldset>\n";
     print "  <legend></legend>\n";
     print "    <p class=\"error\">Error deleting entry $Id from the $tbl_users table.</p>\n";
@@ -649,98 +825,106 @@ if (isset($Action) && ($Action == "Delete"))
 
 /* Print the standard MRBS header */
 
-print_header(0, 0, 0, "", "");
-
-print "<h2>" . get_vocab("user_list") . "</h2>\n";
-
-if ($level >= $min_user_editing_level) /* Administrators get the right to add new users */
+if (!$ajax)
 {
-  print "<form id=\"add_new_user\" method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)) . "\">\n";
-  print "  <div>\n";
-  print "    <input type=\"hidden\" name=\"Action\" value=\"Add\">\n";
-  print "    <input type=\"hidden\" name=\"Id\" value=\"-1\">\n";
-  print "    <input type=\"submit\" value=\"" . get_vocab("add_new_user") . "\">\n";
-  print "  </div>\n";
-  print "</form>\n";
+  print_header(0, 0, 0, "", "");
+
+  print "<h2>" . get_vocab("user_list") . "</h2>\n";
+
+  if ($level >= $min_user_editing_level) /* Administrators get the right to add new users */
+  {
+    print "<form id=\"add_new_user\" method=\"post\" action=\"" . htmlspecialchars(this_page()) . "\">\n";
+    print "  <div>\n";
+    print "    <input type=\"hidden\" name=\"Action\" value=\"Add\">\n";
+    print "    <input type=\"hidden\" name=\"Id\" value=\"-1\">\n";
+    print "    <input type=\"submit\" value=\"" . get_vocab("add_new_user") . "\">\n";
+    print "  </div>\n";
+    print "</form>\n";
+  }
 }
 
 if ($initial_user_creation != 1)   // don't print the user table if there are no users
 {
-  $list = sql_query("SELECT * FROM $tbl_users ORDER BY level DESC, name");
-  print "<table id=\"edit_users_list\" class=\"admin_table\">\n";
-  print "<thead>\n";
-  print "<tr>";
+  // Get the user information
+  $res = sql_query("SELECT * FROM $tbl_users ORDER BY level DESC, name");
   
-  // Column headers (we don't use 'id' and 'password')
-  foreach ($fields as $fieldname)
+  // Display the data in a table
+  $ignore_columns = array('id', 'password_hash', 'name'); // We don't display these columns or they get special treatment
+  
+  if (!$ajax)
   {
-    if ($fieldname != 'id' && $fieldname != 'password')
+    echo "<div id=\"user_list\" class=\"datatable_container\">\n";
+    echo "<table class=\"admin_table display\" id=\"users_table\">\n";
+  
+    // The table header
+    echo "<thead>\n";
+    echo "<tr>";
+  
+    // First column which is the name
+    echo "<th>" . get_vocab("users.name") . "</th>\n";
+  
+    // Other column headers
+    foreach ($fields as $field)
     {
-      print "<th>" . get_loc_field_name($fieldname) . "</th>";
+      $fieldname = $field['name'];
+    
+      if (!in_array($fieldname, $ignore_columns))
+      {
+        $heading = get_loc_field_name($tbl_users, $fieldname);
+        // We give some columns a type data value so that the JavaScript knows how to sort them
+        switch ($fieldname)
+        {
+          case 'level':
+            $heading = '<span class="normal" data-type="title-numeric">' . $heading . '</span>';
+            break;
+          default:
+            break;
+        }
+        echo "<th>$heading</th>";
+      }
+    }
+  
+    echo "</tr>\n";
+    echo "</thead>\n";
+  
+    // The table body
+    echo "<tbody>\n";
+  }
+  
+  // If we're Ajax capable and this is not an Ajax request then don't output
+  // the table body, because that's going to be sent later in response to
+  // an Ajax request
+  if (!$ajax_capable || $ajax)
+  {
+    for ($i = 0; ($row = sql_row_keyed($res, $i)); $i++)
+    {
+      // You can only see this row if (a) we allow everybody to see all rows or
+      // (b) you are an admin or (c) you are this user
+      if (!$auth['only_admin_can_see_other_users'] ||
+          ($level >= $min_user_viewing_level) ||
+          (strcasecmp($row['name'], $user) == 0))
+      {
+        output_row($row);
+      }
     }
   }
-  // Last column which is an action button
-  print "<th>" . get_vocab("action") . "</th>";
-  print "</tr>\n";
-  print "</thead>\n";
   
-  print "<tbody>\n";
-  $i = 0; 
-  while ($line = sql_row_keyed($list, $i++))
+  if (!$ajax)
   {
-    print "<tr>\n";
-    
-    // Column contents
-    foreach ($line as $key=>$col_value) 
-    {
-      // sql_row_keyed returns an array indexed by both index number annd key name,
-      // so skip past the index numbers
-      if (is_int($key))
-      {
-        continue;
-      }
-      switch($key)
-      {
-        case 'id':
-          $this_id = $col_value;  // Don't display it, but remember it.
-          break;
-        case 'password':
-          break;                  // Don't display the password
-        case 'level':
-          echo "<td>" . get_vocab("level_$col_value") . "</td>\n";
-          break;
-        default:
-          echo "<td>" . ((empty($col_value)) ? "&nbsp;" : htmlspecialchars($col_value)) . "</td>\n";
-          break;
-      }  // end switch   
-    }  // end foreach
-    
-    // Last column (the action button)
-    print "<td>\n";
-    // You can only edit a user if you have sufficient admin rights, or else if that user is yourself
-    if (($level >= $min_user_editing_level) || (strcasecmp($line['name'], $user) == 0))
-    {
-      print "<form method=\"post\" action=\"" . htmlspecialchars(basename($PHP_SELF)) . "\">\n";
-      print "  <div>\n";
-      print "    <input type=\"hidden\" name=\"Action\" value=\"Edit\">\n";
-      print "    <input type=\"hidden\" name=\"Id\" value=\"$this_id\">\n";
-      print "    <input type=\"submit\" value=\"" . get_vocab("edit") . "\">\n";
-      print "  </div>\n";
-      print "</form>\n";
-    }
-    else
-    {
-      print "&nbsp;\n";
-    }
-    print "</td>\n";
-    print "</tr>\n";
-    
-  }  // end while
+    echo "</tbody>\n";
   
-  print "</tbody>\n";
-  print "</table>\n";
+    echo "</table>\n";
+    echo "</div>\n";
+  }
+  
 }   // ($initial_user_creation != 1)
 
-require_once "trailer.inc";
+if ($ajax)
+{
+  echo json_encode($json_data);
+}
+else
+{
+  output_trailer();
+}
 
-?>
