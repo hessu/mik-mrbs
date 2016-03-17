@@ -7,13 +7,13 @@
 // ***** COLOURS ************************
 // Colours used in MRBS.    All the colours are defined here as PHP variables
 
-$body_background_color          = "#e7ebee";    // background colour for the main body
+$body_background_color          = "#ffffff";    // background colour for the main body
 $standard_font_color            = "#0B263B";    // default font color
 $header_font_color              = "#ffffff";    // font color for text in headers
 $highlight_font_color           = "#ff0066";    // used for highlighting text (eg links, errors)
 $colour_key_font_color          = $standard_font_color;    // used in the colour key table
 
-$banner_back_color              = "#4b667b";    // background colour for banner
+$banner_back_color              = "#666666";    // background colour for banner
 $banner_border_color            = $body_background_color;    // border colour for banner
 $banner_font_color              = $header_font_color;       // font colour for banner
 
@@ -76,8 +76,8 @@ $multiple_control_color         = "#ffff22";        // background colour for the
 // displays in the day, week and month views
 $color_types = array(
     'A' => "#ffff99",
-    'B' => "#99cccc",
-    'C' => "#ffffcd",
+    'B' => "#cccc99",
+    'C' => "#99cccc",
     'D' => "#cde6e6",
     'E' => "#6dd9c4",
     'F' => "#82adad",
@@ -89,13 +89,13 @@ $color_types = array(
     
 // ***** DIMENSIONS *******************
 $banner_border_width          = '0';  // (px)  border width for the outside of the banner
-$banner_border_cell_width     = '1';  // (px)  border width for the cells of the banner
-$main_table_border_width      = '0';  // (px)  border width for the outside of the main day/week/month tables    
-$main_table_cell_border_width = '1';  // (px)  border width for the cells of the main day/week/month tables
+$banner_border_cell_width     = '2';  // (px)  border width for the cells of the banner
+$main_table_border_width      = '2';  // (px)  border width for the outside of the main day/week/month tables    
+$main_table_cell_border_width = '2';  // (px)  border width for the cells of the main day/week/month tables
 $main_cell_height             = '17'; // (px)  height of the cells in the main day/week tables
          
     
 // ***** FONTS ************************    
-$standard_font_family  = 'Arial, Verdana, sans-serif';
+$standard_font_family  = '"Trebuchet MS", Verdana, sans-serif';
 
 ?>
