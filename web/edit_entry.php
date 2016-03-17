@@ -185,9 +185,24 @@ if (isset($id))
 }
 else
 {
+// 2010-02-03 ohbas
+/*$wp_include="../wp-config.php";
+require_once($wp_include);
+global $current_user;
+*/
+//  	$sql = "select realname, phone, memberid from mrbs_user where strcmp(username,'" .  getUserName() ."')=0";
+//	$res = sql_query($sql);
+//	$mik_row = sql_row_keyed($res, 0);
+
   // It is a new booking. The data comes from whichever button the user clicked
   $edit_type   = "series";
-  $name        = "";
+  // 2010-01-26 tigert/ohbas: MIK mod, to show name + phone# in booking 
+//  $name        = $mik_row['memberid'] . ' ' . $mik_row['realname'] . ' (' . $mik_row['phone'] . ')';
+
+//print('__' . $current_user->user_email . '__');
+//$name= $current_user->user_lastname . " " .  $current_user->user_firstname . " (". $current_user->wpum_puhelinnumero .")";
+$name = "hessu";
+
   $create_by   = getUserName();
   $description = "";
   $start_day   = $day;
@@ -445,7 +460,7 @@ else
     <div id="div_name">
       <label for="name"><?php echo get_vocab("namebooker")?>:</label>
       <?php
-      echo "<input id=\"name\" name=\"name\" maxlength=\"" . $maxlength['entry.name'] . "\" value=\"" . htmlspecialchars($name) . "\">\n";
+      echo "<input id=\"name\" readonly=\"readonly\" name=\"name\" maxlength=\"" . $maxlength['entry.name'] . "\" value=\"" . htmlspecialchars($name) . "\">\n";
       ?>
     </div>
 
@@ -655,7 +670,7 @@ else
     ?>
     
     
-    <div id="div_rooms">
+    <div id="div_rooms" style="display:none">
     <label for="rooms"><?php echo get_vocab("rooms") ?>:</label>
     <div class="group">
       <select id="rooms" name="rooms[]" multiple="multiple" size="5">
@@ -721,7 +736,7 @@ else
     if ($edit_type == "series")
     {
     ?>
-      <div id="rep_type">
+      <div id="rep_type" style="display: none !important;">
         <label><?php echo get_vocab("rep_type")?>:</label>
         <div class="group">
           <?php
@@ -737,13 +752,12 @@ else
           ?>
         </div>
       </div>
-
-      <div id="rep_end_date">
+      <div id="rep_end_date" style="display: none !important;">
         <label><?php echo get_vocab("rep_end_date")?>:</label>
         <?php genDateSelector("rep_end_", $rep_end_day, $rep_end_month, $rep_end_year) ?>
       </div>
       
-      <div id="rep_day">
+      <div id="rep_day" style="display: none !important;">
         <label><?php echo get_vocab("rep_rep_day")?>:<br><?php echo get_vocab("rep_for_weekly")?></label>
         <div class="group">
           <?php
@@ -812,8 +826,8 @@ else
                              ( "series" == $edit_type ) ) )
     {
       ?>
-      <label for="rep_num_weeks"><?php echo get_vocab("rep_num_weeks")?>:<br><?php echo get_vocab("rep_for_nweekly")?></label>
-      <input type="text" id="rep_num_weeks" name="rep_num_weeks" value="<?php echo $rep_num_weeks?>">
+      <label style="display:none" for="rep_num_weeks"><?php echo get_vocab("rep_num_weeks")?>:<br><?php echo get_vocab("rep_for_nweekly")?></label>
+      <input style="display:none" type="text" id="rep_num_weeks" name="rep_num_weeks" value="<?php echo $rep_num_weeks?>">
       <?php
     }
     
