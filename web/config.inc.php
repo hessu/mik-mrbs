@@ -59,14 +59,15 @@ $db_tbl_prefix = "mikweb2_mrbs_";
    to change the default configuration. Do _NOT_ modify systemdefaults.inc.php
    or areadefaults.inc.php.  */
 
-$typel["A"] = "Harjoituslento";
-$typel["B"] = "Matkalento";
-$typel["C"] = "Koululento";
-$typel["D"] = "Huolto";
-$typel["E"] = "Taitolento";
-$typel["F"] = "SAR etsintä/pelastuslento";
+$booking_types = array("A", "B", "C", "D", "E", "F");
+$default_type = "A";
 
-unset($typel["I"]); // set in systemdefaults, unset.
+$vocab_override["en"]["type.A"] = "Harjoituslento";
+$vocab_override["en"]["type.B"] = "Matkalento";
+$vocab_override["en"]["type.C"] = "Koululento";
+$vocab_override["en"]["type.D"] = "Huolto";
+$vocab_override["en"]["type.E"] = "Taitolento";
+$vocab_override["en"]["type.F"] = "SAR etsintä/pelastuslento";
 
 $mrbs_admin = "admin";
 $mrbs_admin_email = "tuomas.kuosmanen@gmail.com";
