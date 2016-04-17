@@ -122,7 +122,7 @@ $disable_automatic_language_changing = 1;
 //$default_language_tokens = "en";
 $default_language_tokens = "mik";
 
-$override_locale = "fi_FI";
+$override_locale = "fi_FI.UTF-8";
 
 // If you want only administrators to be able to make repeat bookings,
 // set this variable to TRUE
