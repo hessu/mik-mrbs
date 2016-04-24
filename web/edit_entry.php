@@ -901,6 +901,14 @@ else
   $room_id       = $room;
   $private       = $private_default;
   $confirmed     = $confirmed_default;
+  
+  /* MIK: get user name + phone from WP
+  $wp_include="../wp-config.php";
+  require_once($wp_include);
+  global $current_user;
+  $name = $current_user->user_lastname . " " .  $current_user->user_firstname . " (" . $current_user->wpum_puhelinnumero . ")";
+  */
+  $name = "Hannikainen Heikki (0400 123 456)";
 
   // Get the hour and minute, converting a period to its MRBS time
   // Set some sensible defaults
@@ -1128,7 +1136,8 @@ foreach ($edit_entry_field_order as $key)
   switch( $key )
   {
   case 'name':
-    create_field_entry_name();
+    // MIK: disable 'name' field editing by passing TRUE here
+    create_field_entry_name(TRUE);
     break;
 
   case 'description':
