@@ -124,6 +124,9 @@ $default_language_tokens = "mik";
 
 $override_locale = "fi_FI.UTF-8";
 
+// area default: only applies for new rooms, need to edit in Admin for old rooms
+$confirmation_enabled = FALSE;
+
 // If you want only administrators to be able to make repeat bookings,
 // set this variable to TRUE
 $auth['only_admin_can_book_repeat'] = TRUE;
