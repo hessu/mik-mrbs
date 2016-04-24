@@ -1,0 +1,18 @@
+<?php // -*-mode: PHP; coding:utf-8;-*-
+// $Id$
+
+// This file is PHP code. Treat it as such.
+// UTF-8 !
+
+include_once('lang.en');
+
+// Used in style.inc
+$vocab["mrbs"]               = "Plane Booking System";
+
+$vocab["namebooker"]         = "Name";
+$vocab["fulldescription"]    = "Full Description:<br>&nbsp;&nbsp;(Flight time, # of people, etc..)";
+
+$vocab["rooms"]              = "Aircraft";
+
+
+?>
